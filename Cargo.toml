@@ -12,17 +12,13 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
 egui = "0.28"
-eframe = { version = "0.28", default-features = false, features = [
-    "default_fonts", # Embed the default egui fonts.
-    "wgpu",          # Use the wgpu rendering backend.
-    "persistence",   # Enable restoring app state when restarting the app.
-    "wayland",
-    "x11"
-] }
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "wgpu", "persistence", "wayland", "x11", "puffin"] }
 log = "0.4"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
+puffin = "0.19.1"
+puffin_egui = "0.29.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

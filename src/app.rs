@@ -1,22 +1,13 @@
+use eframe::egui_wgpu::CallbackTrait;
+use egui::LayerId;
+
+use crate::triangle::Triangle;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    value: f32,
-}
-
-impl Default for TemplateApp {
-    fn default() -> Self {
-        Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
-        }
-    }
+    show_camera_window: bool,
 }
 
 impl TemplateApp {
@@ -24,6 +15,16 @@ impl TemplateApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+
+        let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+        wgpu_render_state
+            .renderer
+            .write()
+            .callback_resources
+            .insert(Triangle::new(
+                &wgpu_render_state.device,
+                wgpu_render_state.target_format,
+            ));
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
@@ -42,7 +43,7 @@ impl eframe::App for TemplateApp {
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
@@ -58,6 +59,11 @@ impl eframe::App for TemplateApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
+                    let mut are_scopes_on = puffin::are_scopes_on();
+                    ui.toggle_value(&mut are_scopes_on, "Profiler");
+                    puffin::set_scopes_on(are_scopes_on);
+
+                    ui.toggle_value(&mut self.show_camera_window, "Camera");
                     ui.add_space(16.0);
                 }
 
@@ -65,45 +71,36 @@ impl eframe::App for TemplateApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
+        if let Some(triangle) = frame
+            .wgpu_render_state()
+            .unwrap()
+            .renderer
+            .write()
+            .callback_resources
+            .get_mut::<Triangle>()
+        {
+            // TODO!
+        }
 
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
+        puffin_egui::show_viewport_if_enabled(ctx);
 
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
-            }
-
-            ui.separator();
-
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
-                egui::warn_if_debug_build(ui);
-            });
-        });
+        ctx.layer_painter(LayerId::background()).add(
+            eframe::egui_wgpu::Callback::new_paint_callback(ctx.available_rect(), CustomCallback),
+        );
     }
 }
 
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
+struct CustomCallback;
+
+impl CallbackTrait for CustomCallback {
+    fn paint<'a>(
+        &'a self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut eframe::wgpu::RenderPass<'a>,
+        callback_resources: &'a eframe::egui_wgpu::CallbackResources,
+    ) {
+        if let Some(triangle) = callback_resources.get::<Triangle>() {
+            triangle.render(render_pass);
+        }
+    }
 }
