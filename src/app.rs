@@ -1,7 +1,7 @@
 use eframe::egui_wgpu::CallbackTrait;
 use egui::LayerId;
 
-use crate::triangle::Triangle;
+use crate::renderer::SceneRenderer;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
@@ -21,8 +21,9 @@ impl TemplateApp {
             .renderer
             .write()
             .callback_resources
-            .insert(Triangle::new(
+            .insert(SceneRenderer::init(
                 &wgpu_render_state.device,
+                &wgpu_render_state.queue,
                 wgpu_render_state.target_format,
             ));
 
@@ -71,13 +72,13 @@ impl eframe::App for TemplateApp {
             });
         });
 
-        if let Some(triangle) = frame
+        if let Some(_renderer) = frame
             .wgpu_render_state()
             .unwrap()
             .renderer
             .write()
             .callback_resources
-            .get_mut::<Triangle>()
+            .get_mut::<SceneRenderer>()
         {
             // TODO!
         }
@@ -99,8 +100,27 @@ impl CallbackTrait for CustomCallback {
         render_pass: &mut eframe::wgpu::RenderPass<'a>,
         callback_resources: &'a eframe::egui_wgpu::CallbackResources,
     ) {
-        if let Some(triangle) = callback_resources.get::<Triangle>() {
-            triangle.render(render_pass);
+        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
+            renderer.render(render_pass);
         }
+    }
+
+    fn prepare(
+        &self,
+        device: &eframe::wgpu::Device,
+        queue: &eframe::wgpu::Queue,
+        screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
+        egui_encoder: &mut eframe::wgpu::CommandEncoder,
+        callback_resources: &mut eframe::egui_wgpu::CallbackResources,
+    ) -> Vec<eframe::wgpu::CommandBuffer> {
+        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
+            return Vec::from_iter(renderer.prepare(
+                device,
+                queue,
+                screen_descriptor,
+                egui_encoder,
+            ));
+        }
+        Vec::new()
     }
 }
