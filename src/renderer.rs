@@ -1,26 +1,20 @@
-use bytemuck::{Pod, Zeroable};
+mod camera;
+mod shader;
+
 use eframe::wgpu;
 use puffin::profile_function;
-use std::{borrow::Cow, mem};
 use wgpu::util::DeviceExt;
 
-use crate::camera::ArcBallCamera;
+use camera::ArcBallCamera;
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Vertex {
-    _pos: [f32; 4],
-    _tex_coord: [f32; 2],
-}
-
-fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
-    Vertex {
+fn vertex(pos: [i8; 3], tc: [i8; 2]) -> shader::Vertex {
+    shader::Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
         _tex_coord: [tc[0] as f32, tc[1] as f32],
     }
 }
 
-fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
+fn create_vertices() -> (Vec<shader::Vertex>, Vec<u16>) {
     let vertex_data = [
         // top (0, 0, 1)
         vertex([-1, -1, 1], [0, 0]),
@@ -88,10 +82,10 @@ pub struct SceneRenderer {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
-    bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
-    pipeline: wgpu::RenderPipeline,
-    pipeline_wire: Option<wgpu::RenderPipeline>,
+    bind_group: wgpu::BindGroup,
+    cube_pipeline: wgpu::RenderPipeline,
+    wireframe_pipeline: Option<wgpu::RenderPipeline>,
     user_camera: ArcBallCamera,
 }
 
@@ -102,7 +96,6 @@ impl SceneRenderer {
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         // Create the vertex and index buffers
-        let vertex_size = mem::size_of::<Vertex>();
         let (vertex_data, index_data) = create_vertices();
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -115,38 +108,6 @@ impl SceneRenderer {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(&index_data),
             usage: wgpu::BufferUsages::INDEX,
-        });
-
-        // Create pipeline layout
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(64),
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Uint,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
         });
 
         // Create the texture
@@ -181,16 +142,14 @@ impl SceneRenderer {
 
         let user_camera = ArcBallCamera::default();
 
-        // Create other resources
-        let mx_total = user_camera.view_projection_matrix();
-        let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::cast_slice(mx_ref),
+            contents: bytemuck::bytes_of(&shader::Camera::default()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         // Create bind group
+        let bind_group_layout = device.create_bind_group_layout(&shader::BIND_GROUP_LAYOUT_DESC);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &[
@@ -206,41 +165,27 @@ impl SceneRenderer {
             label: None,
         });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        // Create pipelines
+        let shader = device.create_shader_module(shader::SHADER_MODULE_DESC);
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
         });
 
-        let vertex_buffers = [wgpu::VertexBufferLayout {
-            array_stride: vertex_size as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 4 * 4,
-                    shader_location: 1,
-                },
-            ],
-        }];
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let cube_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &vertex_buffers,
+                entry_point: shader::vs_mesh::ENTRY_NAME,
+                compilation_options: Default::default(),
+                buffers: &shader::vs_mesh::BUFFER_LAYOUTS,
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                entry_point: shader::fs_mesh::ENTRY_NAME,
+                compilation_options: Default::default(),
                 targets: &[Some(surface_format.into())],
             }),
             primitive: wgpu::PrimitiveState {
@@ -252,47 +197,48 @@ impl SceneRenderer {
             multiview: None,
         });
 
-        let pipeline_wire = if device
+        let wireframe_pipeline = if device
             .features()
             .contains(wgpu::Features::POLYGON_MODE_LINE)
         {
-            let pipeline_wire = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &vertex_buffers,
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_wire",
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent {
-                                operation: wgpu::BlendOperation::Add,
-                                src_factor: wgpu::BlendFactor::SrcAlpha,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            },
-                            alpha: wgpu::BlendComponent::REPLACE,
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+            Some(
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: shader::vs_mesh::ENTRY_NAME,
+                        compilation_options: Default::default(),
+                        buffers: &shader::vs_mesh::BUFFER_LAYOUTS,
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: shader::fs_wireframe::ENTRY_NAME,
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: surface_format,
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent {
+                                    operation: wgpu::BlendOperation::Add,
+                                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                },
+                                alpha: wgpu::BlendComponent::REPLACE,
+                            }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        polygon_mode: wgpu::PolygonMode::Line,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview: None,
                 }),
-                primitive: wgpu::PrimitiveState {
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Line,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            });
-            Some(pipeline_wire)
+            )
         } else {
             None
         };
@@ -303,20 +249,11 @@ impl SceneRenderer {
             index_count: index_data.len(),
             bind_group,
             uniform_buf,
-            pipeline,
-            pipeline_wire,
+            cube_pipeline,
+            wireframe_pipeline,
             user_camera,
         }
     }
-
-    // fn window_event(&mut self, context: &mut GraphicsContext, event: &WindowEvent) {
-    //     profile_function!();
-
-    //     let response = self.gui.on_window_event(&context.window, event);
-    //     if !response.consumed {
-    //         self.input.on_window_event(event);
-    //     };
-    // }
 
     pub fn prepare(
         &self,
@@ -340,14 +277,14 @@ impl SceneRenderer {
         profile_function!();
 
         rpass.push_debug_group("Prepare data for draw.");
-        rpass.set_pipeline(&self.pipeline);
+        rpass.set_pipeline(&self.cube_pipeline);
         rpass.set_bind_group(0, &self.bind_group, &[]);
         rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
         rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         rpass.pop_debug_group();
         rpass.insert_debug_marker("Draw!");
         rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
-        if let Some(ref pipe) = self.pipeline_wire {
+        if let Some(ref pipe) = self.wireframe_pipeline {
             rpass.set_pipeline(pipe);
             rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
         }
