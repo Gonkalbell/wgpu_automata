@@ -6,8 +6,7 @@ use crate::renderer::SceneRenderer;
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-}
+pub struct TemplateApp {}
 
 impl TemplateApp {
     /// Called once before the first frame.

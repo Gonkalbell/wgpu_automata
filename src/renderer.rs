@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use eframe::wgpu;
 use puffin::profile_function;
-use std::{borrow::Cow, f32::consts::FRAC_PI_4, mem};
+use std::{borrow::Cow, mem};
 use wgpu::util::DeviceExt;
 
 use crate::camera::ArcBallCamera;
@@ -353,6 +353,12 @@ impl SceneRenderer {
     }
 
     pub fn run_ui(&mut self, ctx: &egui::Context) {
+        if !ctx.wants_keyboard_input() && !ctx.wants_pointer_input() {
+            ctx.input(|input| {
+                self.user_camera.update(input);
+            });
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 // NOTE: no File->Quit on web pages!

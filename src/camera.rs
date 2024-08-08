@@ -30,29 +30,34 @@ impl Default for ArcBallCamera {
 
 impl ArcBallCamera {
     /// Call once per frame to update the camera's parameters with the current input state.
-    // pub fn update(&mut self, input: &Input) {
-    //     profile_function!();
+    pub fn update(&mut self, input: &egui::InputState) {
+        profile_function!();
 
-    //     let (width, height) = input.resolution();
-    //     self.aspect_ratio = width as f32 / height as f32;
-    //     if input.mouse_button_held(&MouseButton::Left) {
-    //         // Note: cursor_delta comes from the filtered [`WindowEvent::CursorMoved`] events, even though winit's docs
-    //         // recommend using unfiltered [`DeviceEvent::MouseMoved`] instead for 3D camera motion. But I want camera
-    //         // movement to be directly proportional to the delta in pixel position of the cursor.
+        let (width, height) = input.screen_rect().size().into();
+        self.aspect_ratio = width / height;
+        if input.pointer.primary_down() {
+            // Note: cursor_delta comes from the filtered [`WindowEvent::CursorMoved`] events, even though winit's docs
+            // recommend using unfiltered [`DeviceEvent::MouseMoved`] instead for 3D camera motion. But I want camera
+            // movement to be directly proportional to the delta in pixel position of the cursor.
 
-    //         let (delta_x, delta_y) = input.cursor_delta();
-    //         let clip_cursor_diff =
-    //             Vec2::new(delta_x as _, delta_y as _) / Vec2::new(width as _, height as _);
+            let (delta_x, delta_y) = input.pointer.delta().into();
+            let clip_cursor_diff =
+                Vec2::new(delta_x as _, delta_y as _) / Vec2::new(width as _, height as _);
 
-    //         let pitch_delta = clip_cursor_diff.y * self.fov_y_revs;
-    //         self.pitch_revs = (self.pitch_revs - pitch_delta).clamp(-0.25, 0.25);
+            let pitch_delta = clip_cursor_diff.y * self.fov_y_revs;
+            self.pitch_revs = (self.pitch_revs - pitch_delta).clamp(-0.25, 0.25);
 
-    //         let fov_x_revs =
-    //             2. * ((TAU * self.fov_y_revs / 2.).tan() * self.aspect_ratio).atan() / TAU;
-    //         let yaw_delta = clip_cursor_diff.x * fov_x_revs;
-    //         self.yaw_revs = (self.yaw_revs - yaw_delta).rem_euclid(1.);
-    //     }
-    // }
+            let fov_x_revs =
+                2. * ((TAU * self.fov_y_revs / 2.).tan() * self.aspect_ratio).atan() / TAU;
+            let yaw_delta = clip_cursor_diff.x * fov_x_revs;
+            self.yaw_revs = (self.yaw_revs - yaw_delta).rem_euclid(1.);
+        }
+
+        let (_, scroll_y) = input.smooth_scroll_delta.into();
+        self.dist -= scroll_y * input.stable_dt;
+
+        self.fov_y_revs = (self.fov_y_revs / input.zoom_delta()).clamp(0.0001, 1. / 2.);
+    }
 
     /// Show a gui window for modifying the camera parameters.
     pub fn run_ui(&mut self, ui: &mut egui::Ui) {
