@@ -17,7 +17,7 @@ log = "0.4"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
-puffin = "0.19.1"
+puffin = { version = "0.19.1", features = ["web"] }
 puffin_egui = "0.29.0"
 bytemuck = { version = "1.16.3", features = ["derive"] }
 glam = { version = "0.28.0", features = ["bytemuck"] }

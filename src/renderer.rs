@@ -338,6 +338,7 @@ impl SceneRenderer {
 
     pub fn render<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
         profile_function!();
+
         rpass.push_debug_group("Prepare data for draw.");
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &self.bind_group, &[]);
@@ -353,6 +354,8 @@ impl SceneRenderer {
     }
 
     pub fn run_ui(&mut self, ctx: &egui::Context) {
+        profile_function!();
+
         if !ctx.wants_keyboard_input() && !ctx.wants_pointer_input() {
             ctx.input(|input| {
                 self.user_camera.update(input);

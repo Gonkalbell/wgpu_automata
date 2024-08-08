@@ -1728,10 +1728,12 @@ dependencies = [
  "byteorder",
  "cfg-if",
  "itertools",
+ "js-sys",
  "lz4_flex",
  "once_cell",
  "parking_lot",
  "serde",
+ "web-time",
 ]
 
 [[package]]
