@@ -7,7 +7,6 @@ use crate::renderer::SceneRenderer;
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    show_camera_window: bool,
 }
 
 impl TemplateApp {
@@ -45,34 +44,7 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
-
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
-
-            egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    let mut are_scopes_on = puffin::are_scopes_on();
-                    ui.toggle_value(&mut are_scopes_on, "Profiler");
-                    puffin::set_scopes_on(are_scopes_on);
-
-                    ui.toggle_value(&mut self.show_camera_window, "Camera");
-                    ui.add_space(16.0);
-                }
-
-                egui::widgets::global_dark_light_mode_buttons(ui);
-            });
-        });
-
-        if let Some(_renderer) = frame
+        if let Some(renderer) = frame
             .wgpu_render_state()
             .unwrap()
             .renderer
@@ -80,10 +52,8 @@ impl eframe::App for TemplateApp {
             .callback_resources
             .get_mut::<SceneRenderer>()
         {
-            // TODO!
+            renderer.run_ui(ctx);
         }
-
-        puffin_egui::show_viewport_if_enabled(ctx);
 
         ctx.layer_painter(LayerId::background()).add(
             eframe::egui_wgpu::Callback::new_paint_callback(ctx.available_rect(), CustomCallback),

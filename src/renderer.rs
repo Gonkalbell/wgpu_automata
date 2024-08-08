@@ -4,6 +4,8 @@ use puffin::profile_function;
 use std::{borrow::Cow, f32::consts::FRAC_PI_4, mem};
 use wgpu::util::DeviceExt;
 
+use crate::camera::ArcBallCamera;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
@@ -80,22 +82,6 @@ fn create_texels(size: usize) -> Vec<u8> {
             count
         })
         .collect()
-}
-
-#[derive(Default)]
-struct ArcBallCamera;
-
-impl ArcBallCamera {
-    fn view_projection_matrix(&self) -> glam::Mat4 {
-        let aspect_ratio = 16. / 9.;
-        let projection = glam::Mat4::perspective_rh(FRAC_PI_4, aspect_ratio, 1.0, 10.0);
-        let view = glam::Mat4::look_at_rh(
-            glam::Vec3::new(1.5f32, -5.0, 3.0),
-            glam::Vec3::ZERO,
-            glam::Vec3::Z,
-        );
-        projection * view
-    }
 }
 
 pub struct SceneRenderer {
@@ -193,7 +179,7 @@ impl SceneRenderer {
             texture_extent,
         );
 
-        let user_camera = ArcBallCamera;
+        let user_camera = ArcBallCamera::default();
 
         // Create other resources
         let mx_total = user_camera.view_projection_matrix();
@@ -364,5 +350,29 @@ impl SceneRenderer {
             rpass.set_pipeline(pipe);
             rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
         }
+    }
+
+    pub fn run_ui(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                // NOTE: no File->Quit on web pages!
+                let is_web = cfg!(target_arch = "wasm32");
+                if !is_web {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                }
+
+                let mut are_scopes_on = puffin::are_scopes_on();
+                ui.toggle_value(&mut are_scopes_on, "Profiler");
+                puffin::set_scopes_on(are_scopes_on);
+
+                ui.menu_button("Camera", |ui| self.user_camera.run_ui(ui));
+            });
+
+            puffin_egui::show_viewport_if_enabled(ctx);
+        });
     }
 }
