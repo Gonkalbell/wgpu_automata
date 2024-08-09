@@ -108,8 +108,4 @@ impl ArcBallCamera {
     pub fn projection_matrix(&self) -> Mat4 {
         Mat4::perspective_infinite_reverse_rh(TAU * self.fov_y_revs, self.aspect_ratio, 0.1)
     }
-
-    pub fn view_projection_matrix(&self) -> Mat4 {
-        self.projection_matrix() * self.view_matrix()
-    }
 }
