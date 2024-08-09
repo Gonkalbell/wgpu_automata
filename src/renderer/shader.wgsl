@@ -4,14 +4,14 @@ const MATERIAL_GROUP = 1;
 const SKYBOX_GROUP = 1;
 
 struct Camera {
-    // from view space to clip space
-    proj: mat4x4<f32>,
-    // from clip space to view space
-    proj_inv: mat4x4<f32>,
     // from world space to view space
     view: mat4x4<f32>,
     // from vew space to world space
     view_inv: mat4x4<f32>,
+    // from view space to clip space
+    proj: mat4x4<f32>,
+    // from clip space to view space
+    proj_inv: mat4x4<f32>,
 };
 
 @group(CAMERA_GROUP)
@@ -69,7 +69,8 @@ fn vs_skybox(@builtin(vertex_index) vertex_index: u32) -> SkyboxInterp {
 
     var result: SkyboxInterp;
     result.position = pos;
-    result.tex_coord = (res_camera.view_inv * res_camera.proj_inv * pos).xyz;
+    let dir = vec4<f32>((res_camera.proj_inv * pos).xyz, 0.0);
+    result.tex_coord = (res_camera.view_inv * dir).xyz;
     return result;
 }
 

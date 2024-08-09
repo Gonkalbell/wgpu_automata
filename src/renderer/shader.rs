@@ -15,14 +15,14 @@ pub const SKYBOX_GROUP: u32 = 1;
 #[repr(C)]
 #[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct Camera {
-    // from view space to clip space
-    pub proj: Mat4,
-    // from clip space to view space
-    pub proj_inv: Mat4,
     // from world space to view space
     pub view: Mat4,
     // from vew space to world space
     pub view_inv: Mat4,
+    // from view space to clip space
+    pub proj: Mat4,
+    // from clip space to view space
+    pub proj_inv: Mat4,
 }
 
 pub const SHADER_MODULE_DESC: wgpu::ShaderModuleDescriptor<'static> =

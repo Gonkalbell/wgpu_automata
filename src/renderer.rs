@@ -406,11 +406,15 @@ impl SceneRenderer {
     ) -> Option<wgpu::CommandBuffer> {
         profile_function!();
 
-        // self.user_camera.update(&self.input);
-
-        let mx_total = self.user_camera.view_projection_matrix();
-        let mx_ref: &[f32; 16] = mx_total.as_ref();
-        queue.write_buffer(&self.camera_buf, 0, bytemuck::cast_slice(mx_ref));
+        let view = self.user_camera.view_matrix();
+        let proj = self.user_camera.projection_matrix();
+        let camera = shader::Camera {
+            view,
+            view_inv: view.inverse(),
+            proj,
+            proj_inv: proj.inverse(),
+        };
+        queue.write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&camera));
 
         None
     }
