@@ -7,47 +7,44 @@ use wgpu::util::DeviceExt;
 
 use camera::ArcBallCamera;
 
+use shader::*;
+
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-fn vertex(pos: [i8; 3], tc: [i8; 2]) -> shader::vs_mesh::Vertex {
-    shader::vs_mesh::Vertex {
-        pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
-        tex_coord: [tc[0] as f32, tc[1] as f32],
-    }
-}
+fn create_vertices() -> (Vec<cube::Vertex>, Vec<u16>) {
+    use cube::Vertex;
 
-fn create_vertices() -> (Vec<shader::vs_mesh::Vertex>, Vec<u16>) {
     let vertex_data = [
         // top (0, 0, 1)
-        vertex([-1, -1, 1], [0, 0]),
-        vertex([1, -1, 1], [1, 0]),
-        vertex([1, 1, 1], [1, 1]),
-        vertex([-1, 1, 1], [0, 1]),
+        Vertex::new([-1., -1., 1., 1.].into(), [0., 0.].into()),
+        Vertex::new([1., -1., 1., 1.].into(), [1., 0.].into()),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.].into()),
         // bottom (0, 0, -1)
-        vertex([-1, 1, -1], [1, 0]),
-        vertex([1, 1, -1], [0, 0]),
-        vertex([1, -1, -1], [0, 1]),
-        vertex([-1, -1, -1], [1, 1]),
+        Vertex::new([-1., 1., -1., 1.].into(), [1., 0.].into()),
+        Vertex::new([1., 1., -1., 1.].into(), [0., 0.].into()),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 1.].into()),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
         // right (1, 0, 0)
-        vertex([1, -1, -1], [0, 0]),
-        vertex([1, 1, -1], [1, 0]),
-        vertex([1, 1, 1], [1, 1]),
-        vertex([1, -1, 1], [0, 1]),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 0.].into()),
+        Vertex::new([1., 1., -1., 1.].into(), [1., 0.].into()),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
+        Vertex::new([1., -1., 1., 1.].into(), [0., 1.].into()),
         // left (-1, 0, 0)
-        vertex([-1, -1, 1], [1, 0]),
-        vertex([-1, 1, 1], [0, 0]),
-        vertex([-1, 1, -1], [0, 1]),
-        vertex([-1, -1, -1], [1, 1]),
+        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.].into()),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 0.].into()),
+        Vertex::new([-1., 1., -1., 1.].into(), [0., 1.].into()),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
         // front (0, 1, 0)
-        vertex([1, 1, -1], [1, 0]),
-        vertex([-1, 1, -1], [0, 0]),
-        vertex([-1, 1, 1], [0, 1]),
-        vertex([1, 1, 1], [1, 1]),
+        Vertex::new([1., 1., -1., 1.].into(), [1., 0.].into()),
+        Vertex::new([-1., 1., -1., 1.].into(), [0., 0.].into()),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.].into()),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
         // back (0, -1, 0)
-        vertex([1, -1, 1], [0, 0]),
-        vertex([-1, -1, 1], [1, 0]),
-        vertex([-1, -1, -1], [1, 1]),
-        vertex([1, -1, -1], [0, 1]),
+        Vertex::new([1., -1., 1., 1.].into(), [0., 0.].into()),
+        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.].into()),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 1.].into()),
     ];
 
     let index_data: &[u16] = &[
@@ -79,6 +76,13 @@ fn create_texels(size: usize) -> Vec<u8> {
         })
         .collect()
 }
+
+const CAMERA_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
+    cube::WgpuBindGroup0::LAYOUT_DESCRIPTOR;
+const MATERIAL_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
+    cube::WgpuBindGroup1::LAYOUT_DESCRIPTOR;
+const SKYBOX_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
+    skybox::WgpuBindGroup1::LAYOUT_DESCRIPTOR;
 
 pub struct SceneRenderer {
     vertex_buf: wgpu::Buffer,
@@ -154,7 +158,12 @@ impl SceneRenderer {
 
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::bytes_of(&shader::Camera::default()),
+            contents: bytemuck::bytes_of(&shader::camera::Camera {
+                view: Default::default(),
+                view_inv: Default::default(),
+                proj: Default::default(),
+                proj_inv: Default::default(),
+            }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -202,8 +211,7 @@ impl SceneRenderer {
             entries: &[],
         });
 
-        let camera_bgroup_layout =
-            device.create_bind_group_layout(&shader::CAMERA_BGROUP_LAYOUT_DESC);
+        let camera_bgroup_layout = device.create_bind_group_layout(&CAMERA_BGROUP_LAYOUT_DESC);
         let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("camera"),
             layout: &camera_bgroup_layout,
@@ -213,8 +221,7 @@ impl SceneRenderer {
             }],
         });
 
-        let material_bgroup_layout =
-            device.create_bind_group_layout(&shader::MATERIAL_BGROUP_LAYOUT_DESC);
+        let material_bgroup_layout = device.create_bind_group_layout(&MATERIAL_BGROUP_LAYOUT_DESC);
         let material_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("material"),
             layout: &material_bgroup_layout,
@@ -224,8 +231,7 @@ impl SceneRenderer {
             }],
         });
 
-        let skybox_bgroup_layout =
-            device.create_bind_group_layout(&shader::SKYBOX_BGROUP_LAYOUT_DESC);
+        let skybox_bgroup_layout = device.create_bind_group_layout(&SKYBOX_BGROUP_LAYOUT_DESC);
         let skybox_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("skybox"),
             layout: &skybox_bgroup_layout,
@@ -254,7 +260,7 @@ impl SceneRenderer {
 
         // Create pipelines
 
-        let shader = device.create_shader_module(shader::SHADER_MODULE_DESC);
+        let shader = cube::create_shader_module_embed_source(&device);
         let cube_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("cube_pipeline_layout"),
             bind_group_layouts: &[&camera_bgroup_layout, &material_bgroup_layout],
@@ -264,18 +270,11 @@ impl SceneRenderer {
         let cube_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("cube_pipeline"),
             layout: Some(&cube_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: shader::vs_mesh::ENTRY_NAME,
-                compilation_options: Default::default(),
-                buffers: &shader::vs_mesh::BUFFER_LAYOUTS,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: shader::fs_mesh::ENTRY_NAME,
-                compilation_options: Default::default(),
-                targets: &[Some(color_format.into())],
-            }),
+            vertex: cube::vertex_state(&shader, &cube::vs_mesh_entry(wgpu::VertexStepMode::Vertex)),
+            fragment: Some(cube::fragment_state(
+                &shader,
+                &cube::fs_mesh_entry([Some(color_format.into())]),
+            )),
             primitive: wgpu::PrimitiveState {
                 cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
@@ -299,17 +298,13 @@ impl SceneRenderer {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("wireframe_pipeline"),
                     layout: Some(&cube_pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: shader::vs_mesh::ENTRY_NAME,
-                        compilation_options: Default::default(),
-                        buffers: &shader::vs_mesh::BUFFER_LAYOUTS,
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: shader::fs_wireframe::ENTRY_NAME,
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
+                    vertex: cube::vertex_state(
+                        &shader,
+                        &cube::vs_mesh_entry(wgpu::VertexStepMode::Vertex),
+                    ),
+                    fragment: Some(cube::fragment_state(
+                        &shader,
+                        &cube::fs_wireframe_entry([Some(wgpu::ColorTargetState {
                             format: color_format,
                             blend: Some(wgpu::BlendState {
                                 color: wgpu::BlendComponent {
@@ -320,8 +315,8 @@ impl SceneRenderer {
                                 alpha: wgpu::BlendComponent::REPLACE,
                             }),
                             write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
+                        })]),
+                    )),
                     primitive: wgpu::PrimitiveState {
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode: Some(wgpu::Face::Back),
@@ -343,6 +338,7 @@ impl SceneRenderer {
             None
         };
 
+        let shader = skybox::create_shader_module_embed_source(&device);
         let skybox_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("skybox_pipeline_layout"),
@@ -352,18 +348,11 @@ impl SceneRenderer {
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("skybox"),
             layout: Some(&skybox_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: shader::vs_skybox::ENTRY_NAME,
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: shader::fs_skybox::ENTRY_NAME,
-                compilation_options: Default::default(),
-                targets: &[Some(color_format.into())],
-            }),
+            vertex: skybox::vertex_state(&shader, &skybox::vs_skybox_entry()),
+            fragment: Some(skybox::fragment_state(
+                &shader,
+                &skybox::fs_skybox_entry([Some(color_format.into())]),
+            )),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Cw,
                 ..Default::default()
@@ -408,7 +397,7 @@ impl SceneRenderer {
 
         let view = self.user_camera.view_matrix();
         let proj = self.user_camera.projection_matrix();
-        let camera = shader::Camera {
+        let camera = shader::camera::Camera {
             view,
             view_inv: view.inverse(),
             proj,
@@ -424,8 +413,8 @@ impl SceneRenderer {
 
         rpass.push_debug_group("Prepare data for draw.");
         rpass.set_pipeline(&self.cube_pipeline);
-        rpass.set_bind_group(shader::CAMERA_GROUP, &self.camera_bgroup, &[]);
-        rpass.set_bind_group(shader::MATERIAL_GROUP, &self.material_bgroup, &[]);
+        rpass.set_bind_group(cube::CAMERA_GROUP, &self.camera_bgroup, &[]);
+        rpass.set_bind_group(cube::MATERIAL_GROUP, &self.material_bgroup, &[]);
         rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
         rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         rpass.pop_debug_group();
@@ -436,7 +425,7 @@ impl SceneRenderer {
             rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
         }
         rpass.set_pipeline(&self.skybox_pipeline);
-        rpass.set_bind_group(shader::SKYBOX_GROUP, &self.skybox_bgroup, &[]);
+        rpass.set_bind_group(skybox::SKYBOX_GROUP, &self.skybox_bgroup, &[]);
         rpass.draw(0..3, 0..1);
     }
 
