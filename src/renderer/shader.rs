@@ -9,7 +9,6 @@ use eframe::wgpu;
 use glam::Mat4;
 
 pub const CAMERA_GROUP: u32 = 0;
-pub const MATERIAL_GROUP: u32 = 1;
 pub const SKYBOX_GROUP: u32 = 1;
 
 #[repr(C)]
@@ -46,21 +45,6 @@ pub const CAMERA_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
         }],
     };
 
-pub const MATERIAL_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
-    wgpu::BindGroupLayoutDescriptor {
-        label: Some("material"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                multisampled: false,
-                sample_type: wgpu::TextureSampleType::Uint,
-                view_dimension: wgpu::TextureViewDimension::D2,
-            },
-            count: None,
-        }],
-    };
-
 pub const SKYBOX_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
     wgpu::BindGroupLayoutDescriptor {
         label: Some("skybox"),
@@ -83,32 +67,6 @@ pub const SKYBOX_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
             },
         ],
     };
-pub mod vs_mesh {
-    use super::*;
-
-    pub const ENTRY_NAME: &str = "vs_mesh";
-
-    pub const BUFFER_LAYOUTS: [wgpu::VertexBufferLayout<'static>; 1] = [wgpu::VertexBufferLayout {
-        array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x2],
-    }];
-
-    #[repr(C)]
-    #[derive(Clone, Copy, Pod, Zeroable)]
-    pub struct Vertex {
-        pub pos: [f32; 4],
-        pub tex_coord: [f32; 2],
-    }
-}
-
-pub mod fs_mesh {
-    pub const ENTRY_NAME: &str = "fs_mesh";
-}
-
-pub mod fs_wireframe {
-    pub const ENTRY_NAME: &str = "fs_wireframe";
-}
 
 pub mod vs_skybox {
     pub const ENTRY_NAME: &str = "vs_skybox";
