@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.14.1
 // Changes made to this file will not be saved.
-// SourceHash: 4afe92d60b9587b10e13ca1d50ada13f4705c8ae24698327931a001df2a20b6b
+// SourceHash: 2f65badd27d9a325d00931f7c560bafeb374efb2a626d1eef93c9139d9151545
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,15 +42,15 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < glam::Mat4 > () == 64);
         assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
-    const CAMERA_CAMERA_ASSERTS: () = {
-        assert!(std::mem::offset_of!(camera::Camera, view) == 0);
-        assert!(std::mem::offset_of!(camera::Camera, view_inv) == 64);
-        assert!(std::mem::offset_of!(camera::Camera, proj) == 128);
-        assert!(std::mem::offset_of!(camera::Camera, proj_inv) == 192);
-        assert!(std::mem::size_of:: < camera::Camera > () == 256);
+    const BGROUP_CAMERA_CAMERA_ASSERTS: () = {
+        assert!(std::mem::offset_of!(bgroup_camera::Camera, view) == 0);
+        assert!(std::mem::offset_of!(bgroup_camera::Camera, view_inv) == 64);
+        assert!(std::mem::offset_of!(bgroup_camera::Camera, proj) == 128);
+        assert!(std::mem::offset_of!(bgroup_camera::Camera, proj_inv) == 192);
+        assert!(std::mem::size_of:: < bgroup_camera::Camera > () == 256);
     };
 }
-pub mod camera {
+pub mod bgroup_camera {
     use super::{_root, _root::*};
     #[repr(C, align(16))]
     #[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -82,8 +82,8 @@ pub mod camera {
 }
 pub mod bytemuck_impls {
     use super::{_root, _root::*};
-    unsafe impl bytemuck::Zeroable for camera::Camera {}
-    unsafe impl bytemuck::Pod for camera::Camera {}
+    unsafe impl bytemuck::Zeroable for bgroup_camera::Camera {}
+    unsafe impl bytemuck::Pod for bgroup_camera::Camera {}
     unsafe impl bytemuck::Zeroable for cube::Vertex {}
     unsafe impl bytemuck::Pod for cube::Vertex {}
 }
@@ -123,8 +123,6 @@ pub mod cube {
             }
         }
     }
-    pub const CAMERA_GROUP: u32 = 0u32;
-    pub const MATERIAL_GROUP: u32 = 1u32;
     #[derive(Debug)]
     pub struct WgpuBindGroup0EntriesParams<'a> {
         pub res_camera: wgpu::BufferBinding<'a>,
@@ -155,7 +153,7 @@ pub mod cube {
         pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
             label: Some("Cube::BindGroup0::LayoutDescriptor"),
             entries: &[
-                /// @binding(0): "res_camera"
+                /// @binding(0): "_root::bgroup_camera::res_camera"
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -163,7 +161,7 @@ pub mod cube {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: std::num::NonZeroU64::new(
-                            std::mem::size_of::<_root::camera::Camera>() as _,
+                            std::mem::size_of::<_root::bgroup_camera::Camera>() as _,
                         ),
                     },
                     count: None,
@@ -379,7 +377,7 @@ pub mod cube {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct CameraX_naga_oil_mod_XMNQW2ZLSMEX {
+struct CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX {
     view: mat4x4<f32>,
     view_inv: mat4x4<f32>,
     proj: mat4x4<f32>,
@@ -396,11 +394,8 @@ struct MeshInterp {
     @location(0) tex_coord: vec2<f32>,
 }
 
-const CAMERA_GROUP: u32 = 0u;
-const MATERIAL_GROUP: u32 = 1u;
-
 @group(0) @binding(0) 
-var<uniform> res_camera: CameraX_naga_oil_mod_XMNQW2ZLSMEX;
+var<uniform> res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX: CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX;
 @group(1) @binding(0) 
 var res_color: texture_2d<u32>;
 
@@ -409,8 +404,8 @@ fn vs_mesh(in: Vertex) -> MeshInterp {
     var out: MeshInterp;
 
     out.tex_coord = in.tex_coord;
-    let _e7 = res_camera.proj;
-    let _e10 = res_camera.view;
+    let _e7 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.proj;
+    let _e10 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.view;
     out.position = ((_e7 * _e10) * in.position);
     let _e14 = out;
     return _e14;
@@ -431,8 +426,6 @@ fn fs_wireframe(vertex_1: MeshInterp) -> @location(0) vec4<f32> {
 }
 pub mod skybox {
     use super::{_root, _root::*};
-    pub const CAMERA_GROUP: u32 = 0u32;
-    pub const SKYBOX_GROUP: u32 = 1u32;
     #[derive(Debug)]
     pub struct WgpuBindGroup0EntriesParams<'a> {
         pub res_camera: wgpu::BufferBinding<'a>,
@@ -463,7 +456,7 @@ pub mod skybox {
         pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
             label: Some("Skybox::BindGroup0::LayoutDescriptor"),
             entries: &[
-                /// @binding(0): "res_camera"
+                /// @binding(0): "_root::bgroup_camera::res_camera"
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -471,7 +464,7 @@ pub mod skybox {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: std::num::NonZeroU64::new(
-                            std::mem::size_of::<_root::camera::Camera>() as _,
+                            std::mem::size_of::<_root::bgroup_camera::Camera>() as _,
                         ),
                     },
                     count: None,
@@ -692,7 +685,7 @@ pub mod skybox {
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct CameraX_naga_oil_mod_XMNQW2ZLSMEX {
+struct CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX {
     view: mat4x4<f32>,
     view_inv: mat4x4<f32>,
     proj: mat4x4<f32>,
@@ -704,11 +697,8 @@ struct SkyboxInterp {
     @location(0) tex_coord: vec3<f32>,
 }
 
-const CAMERA_GROUP: u32 = 0u;
-const SKYBOX_GROUP: u32 = 1u;
-
 @group(0) @binding(0) 
-var<uniform> res_camera: CameraX_naga_oil_mod_XMNQW2ZLSMEX;
+var<uniform> res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX: CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX;
 @group(1) @binding(0) 
 var res_texture: texture_cube<f32>;
 @group(1) @binding(1) 
@@ -722,9 +712,9 @@ fn vs_skybox(@builtin(vertex_index) vertex_index: u32) -> SkyboxInterp {
     let tmp2_ = (i32(vertex_index) & 1i);
     let pos = vec4<f32>(((f32(tmp1_) * 4f) - 1f), ((f32(tmp2_) * 4f) - 1f), 1f, 1f);
     result.position = pos;
-    let _e24 = res_camera.proj_inv;
+    let _e24 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.proj_inv;
     let dir = vec4<f32>((_e24 * pos).xyz, 0f);
-    let _e32 = res_camera.view_inv;
+    let _e32 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.view_inv;
     result.tex_coord = (_e32 * dir).xyz;
     let _e35 = result;
     return _e35;

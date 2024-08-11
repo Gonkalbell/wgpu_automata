@@ -78,8 +78,16 @@ fn create_texels(size: usize) -> Vec<u8> {
 }
 
 type CameraBindGroup = shaders::cube::WgpuBindGroup0;
+type CameraBindGroupEntries<'a> = shaders::cube::WgpuBindGroup0Entries<'a>;
+type CameraBindGroupEntriesParams<'a> = shaders::cube::WgpuBindGroup0EntriesParams<'a>;
+
 type MaterialBindGroup = shaders::cube::WgpuBindGroup1;
+type MaterialBindGroupEntries<'a> = shaders::cube::WgpuBindGroup1Entries<'a>;
+type MaterialBindGroupEntriesParams<'a> = shaders::cube::WgpuBindGroup1EntriesParams<'a>;
+
 type SkyboxBindGroup = shaders::skybox::WgpuBindGroup1;
+type SkyboxBindGroupEntries<'a> = shaders::skybox::WgpuBindGroup1Entries<'a>;
+type SkyboxBindGroupEntriesParams<'a> = shaders::skybox::WgpuBindGroup1EntriesParams<'a>;
 
 pub struct SceneRenderer {
     vertex_buf: wgpu::Buffer,
@@ -155,7 +163,7 @@ impl SceneRenderer {
 
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::bytes_of(&shaders::camera::Camera {
+            contents: bytemuck::bytes_of(&shaders::bgroup_camera::Camera {
                 view: Default::default(),
                 view_inv: Default::default(),
                 proj: Default::default(),
@@ -210,21 +218,21 @@ impl SceneRenderer {
 
         let camera_bgroup = CameraBindGroup::from_bindings(
             device,
-            cube::WgpuBindGroup0Entries::new(cube::WgpuBindGroup0EntriesParams {
+            CameraBindGroupEntries::new(CameraBindGroupEntriesParams {
                 res_camera: camera_buf.as_entire_buffer_binding(),
             }),
         );
 
         let material_bgroup = MaterialBindGroup::from_bindings(
             device,
-            cube::WgpuBindGroup1Entries::new(cube::WgpuBindGroup1EntriesParams {
+            MaterialBindGroupEntries::new(MaterialBindGroupEntriesParams {
                 res_color: &cube_tview,
             }),
         );
 
         let skybox_bgroup = SkyboxBindGroup::from_bindings(
             device,
-            skybox::WgpuBindGroup1Entries::new(skybox::WgpuBindGroup1EntriesParams {
+            SkyboxBindGroupEntries::new(SkyboxBindGroupEntriesParams {
                 res_texture: &skybox_tview,
                 res_sampler: &device.create_sampler(&wgpu::SamplerDescriptor {
                     label: Some("skybox sampler"),
@@ -367,7 +375,7 @@ impl SceneRenderer {
 
         let view = self.user_camera.view_matrix();
         let proj = self.user_camera.projection_matrix();
-        let camera = shaders::camera::Camera {
+        let camera = shaders::bgroup_camera::Camera {
             view,
             view_inv: view.inverse(),
             proj,

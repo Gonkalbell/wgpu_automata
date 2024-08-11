@@ -1,4 +1,4 @@
-#define_import_path camera
+#define_import_path bgroup_camera
 
 struct Camera {
     // from world space to view space
@@ -10,3 +10,7 @@ struct Camera {
     // from clip space to view space
     proj_inv: mat4x4<f32>,
 };
+
+@group(0)
+@binding(0)
+var<uniform> res_camera: Camera;

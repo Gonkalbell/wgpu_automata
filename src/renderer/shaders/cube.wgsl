@@ -1,14 +1,6 @@
-#import camera::Camera
+#import bgroup_camera::res_camera
 
-// Bind group indices
-const CAMERA_GROUP = 0u;
-const MATERIAL_GROUP = 1u;
-
-@group(CAMERA_GROUP)
-@binding(0)
-var<uniform> res_camera: Camera;
-
-@group(MATERIAL_GROUP)
+@group(1)
 @binding(0)
 var res_color: texture_2d<u32>;
 

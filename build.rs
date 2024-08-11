@@ -10,7 +10,7 @@ fn main() -> Result<()> {
         .serialization_strategy(WgslTypeSerializeStrategy::Bytemuck)
         .type_map(GlamWgslTypeMap)
         .derive_serde(true)
-        .output("src/renderer/shader.rs")
+        .output("src/renderer/shaders.rs")
         .build()?
         .generate()
         .into_diagnostic()

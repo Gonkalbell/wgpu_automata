@@ -1,16 +1,9 @@
-#import camera::Camera
+#import bgroup_camera::res_camera
 
-const CAMERA_GROUP = 0u;
-const SKYBOX_GROUP = 1u;
-
-@group(CAMERA_GROUP)
-@binding(0)
-var<uniform> res_camera: Camera;
-
-@group(SKYBOX_GROUP)
+@group(1)
 @binding(0)
 var res_texture: texture_cube<f32>;
-@group(SKYBOX_GROUP)
+@group(1)
 @binding(1)
 var res_sampler: sampler;
 
