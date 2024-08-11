@@ -26,7 +26,7 @@ wgpu = "0.20.1"
 
 [build-dependencies]
 miette = { version = "7.2.0", features = ["fancy"] }
-wgsl_bindgen = "0.14.1"
+wgsl_bindgen = "0.15.0"
 
 
 # native:

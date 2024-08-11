@@ -1,4 +1,6 @@
 mod camera;
+
+#[allow(clippy::all)]
 mod shaders;
 
 use eframe::wgpu;
