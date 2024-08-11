@@ -1,5 +1,5 @@
 mod camera;
-mod shader;
+mod shaders;
 
 use eframe::wgpu;
 use puffin::profile_function;
@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 
 use camera::ArcBallCamera;
 
-use shader::*;
+use shaders::*;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -77,12 +77,9 @@ fn create_texels(size: usize) -> Vec<u8> {
         .collect()
 }
 
-const CAMERA_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
-    cube::WgpuBindGroup0::LAYOUT_DESCRIPTOR;
-const MATERIAL_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
-    cube::WgpuBindGroup1::LAYOUT_DESCRIPTOR;
-const SKYBOX_BGROUP_LAYOUT_DESC: wgpu::BindGroupLayoutDescriptor<'static> =
-    skybox::WgpuBindGroup1::LAYOUT_DESCRIPTOR;
+type CameraBindGroup = shaders::cube::WgpuBindGroup0;
+type MaterialBindGroup = shaders::cube::WgpuBindGroup1;
+type SkyboxBindGroup = shaders::skybox::WgpuBindGroup1;
 
 pub struct SceneRenderer {
     vertex_buf: wgpu::Buffer,
@@ -93,9 +90,9 @@ pub struct SceneRenderer {
 
     // BIND GROUPS
     _empty_bgroup: wgpu::BindGroup,
-    camera_bgroup: wgpu::BindGroup,
-    material_bgroup: wgpu::BindGroup,
-    skybox_bgroup: wgpu::BindGroup,
+    camera_bgroup: CameraBindGroup,
+    material_bgroup: MaterialBindGroup,
+    skybox_bgroup: SkyboxBindGroup,
 
     // PIPELINES
     cube_pipeline: wgpu::RenderPipeline,
@@ -158,7 +155,7 @@ impl SceneRenderer {
 
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::bytes_of(&shader::camera::Camera {
+            contents: bytemuck::bytes_of(&shaders::camera::Camera {
                 view: Default::default(),
                 view_inv: Default::default(),
                 proj: Default::default(),
@@ -211,62 +208,41 @@ impl SceneRenderer {
             entries: &[],
         });
 
-        let camera_bgroup_layout = device.create_bind_group_layout(&CAMERA_BGROUP_LAYOUT_DESC);
-        let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera"),
-            layout: &camera_bgroup_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buf.as_entire_binding(),
-            }],
-        });
+        let camera_bgroup = CameraBindGroup::from_bindings(
+            device,
+            cube::WgpuBindGroup0Entries::new(cube::WgpuBindGroup0EntriesParams {
+                res_camera: camera_buf.as_entire_buffer_binding(),
+            }),
+        );
 
-        let material_bgroup_layout = device.create_bind_group_layout(&MATERIAL_BGROUP_LAYOUT_DESC);
-        let material_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("material"),
-            layout: &material_bgroup_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&cube_tview),
-            }],
-        });
+        let material_bgroup = MaterialBindGroup::from_bindings(
+            device,
+            cube::WgpuBindGroup1Entries::new(cube::WgpuBindGroup1EntriesParams {
+                res_color: &cube_tview,
+            }),
+        );
 
-        let skybox_bgroup_layout = device.create_bind_group_layout(&SKYBOX_BGROUP_LAYOUT_DESC);
-        let skybox_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("skybox"),
-            layout: &skybox_bgroup_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_tview),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
-                        &wgpu::SamplerDescriptor {
-                            label: Some("skybox sampler"),
-                            address_mode_u: wgpu::AddressMode::ClampToEdge,
-                            address_mode_v: wgpu::AddressMode::ClampToEdge,
-                            address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
-                            min_filter: wgpu::FilterMode::Linear,
-                            mipmap_filter: wgpu::FilterMode::Linear,
-                            ..Default::default()
-                        },
-                    )),
-                },
-            ],
-        });
+        let skybox_bgroup = SkyboxBindGroup::from_bindings(
+            device,
+            skybox::WgpuBindGroup1Entries::new(skybox::WgpuBindGroup1EntriesParams {
+                res_texture: &skybox_tview,
+                res_sampler: &device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("skybox sampler"),
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                }),
+            }),
+        );
 
         // Create pipelines
 
         let shader = cube::create_shader_module_embed_source(&device);
-        let cube_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("cube_pipeline_layout"),
-            bind_group_layouts: &[&camera_bgroup_layout, &material_bgroup_layout],
-            push_constant_ranges: &[],
-        });
-
+        let cube_pipeline_layout = cube::create_pipeline_layout(&device);
         let cube_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("cube_pipeline"),
             layout: Some(&cube_pipeline_layout),
@@ -339,15 +315,9 @@ impl SceneRenderer {
         };
 
         let shader = skybox::create_shader_module_embed_source(&device);
-        let skybox_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("skybox_pipeline_layout"),
-                bind_group_layouts: &[&camera_bgroup_layout, &skybox_bgroup_layout],
-                push_constant_ranges: &[],
-            });
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("skybox"),
-            layout: Some(&skybox_pipeline_layout),
+            layout: Some(&skybox::create_pipeline_layout(device)),
             vertex: skybox::vertex_state(&shader, &skybox::vs_skybox_entry()),
             fragment: Some(skybox::fragment_state(
                 &shader,
@@ -397,7 +367,7 @@ impl SceneRenderer {
 
         let view = self.user_camera.view_matrix();
         let proj = self.user_camera.projection_matrix();
-        let camera = shader::camera::Camera {
+        let camera = shaders::camera::Camera {
             view,
             view_inv: view.inverse(),
             proj,
@@ -411,21 +381,20 @@ impl SceneRenderer {
     pub fn render<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
         profile_function!();
 
-        rpass.push_debug_group("Prepare data for draw.");
+        self.camera_bgroup.set(rpass);
+
+        self.material_bgroup.set(rpass);
         rpass.set_pipeline(&self.cube_pipeline);
-        rpass.set_bind_group(cube::CAMERA_GROUP, &self.camera_bgroup, &[]);
-        rpass.set_bind_group(cube::MATERIAL_GROUP, &self.material_bgroup, &[]);
         rpass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
         rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-        rpass.pop_debug_group();
-        rpass.insert_debug_marker("Draw!");
         rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
         if let Some(ref pipe) = self.wireframe_pipeline {
             rpass.set_pipeline(pipe);
             rpass.draw_indexed(0..self.index_count as u32, 0, 0..1);
         }
+
+        self.skybox_bgroup.set(rpass);
         rpass.set_pipeline(&self.skybox_pipeline);
-        rpass.set_bind_group(skybox::SKYBOX_GROUP, &self.skybox_bgroup, &[]);
         rpass.draw(0..3, 0..1);
     }
 

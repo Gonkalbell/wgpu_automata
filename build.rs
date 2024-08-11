@@ -4,9 +4,9 @@ use wgsl_bindgen::{WgslTypeSerializeStrategy, WgslBindgenOptionBuilder, GlamWgsl
 // src/build.rs
 fn main() -> Result<()> {
     WgslBindgenOptionBuilder::default()
-        .workspace_root("src/renderer")
-        .add_entry_point("src/renderer/cube.wgsl")
-        .add_entry_point("src/renderer/skybox.wgsl")
+        .workspace_root("src/renderer/shaders")
+        .add_entry_point("src/renderer/shaders/cube.wgsl")
+        .add_entry_point("src/renderer/shaders/skybox.wgsl")
         .serialization_strategy(WgslTypeSerializeStrategy::Bytemuck)
         .type_map(GlamWgslTypeMap)
         .derive_serde(true)
