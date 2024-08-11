@@ -16,35 +16,35 @@ fn create_vertices() -> (Vec<cube::Vertex>, Vec<u16>) {
 
     let vertex_data = [
         // top (0, 0, 1)
-        Vertex::new([-1., -1., 1., 1.].into(), [0., 0.].into()),
-        Vertex::new([1., -1., 1., 1.].into(), [1., 0.].into()),
-        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
-        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.].into()),
+        Vertex::new([-1., -1., 1., 1.].into(), [0., 0.]),
+        Vertex::new([1., -1., 1., 1.].into(), [1., 0.]),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.]),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.]),
         // bottom (0, 0, -1)
-        Vertex::new([-1., 1., -1., 1.].into(), [1., 0.].into()),
-        Vertex::new([1., 1., -1., 1.].into(), [0., 0.].into()),
-        Vertex::new([1., -1., -1., 1.].into(), [0., 1.].into()),
-        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
+        Vertex::new([-1., 1., -1., 1.].into(), [1., 0.]),
+        Vertex::new([1., 1., -1., 1.].into(), [0., 0.]),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 1.]),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.]),
         // right (1, 0, 0)
-        Vertex::new([1., -1., -1., 1.].into(), [0., 0.].into()),
-        Vertex::new([1., 1., -1., 1.].into(), [1., 0.].into()),
-        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
-        Vertex::new([1., -1., 1., 1.].into(), [0., 1.].into()),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 0.]),
+        Vertex::new([1., 1., -1., 1.].into(), [1., 0.]),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.]),
+        Vertex::new([1., -1., 1., 1.].into(), [0., 1.]),
         // left (-1, 0, 0)
-        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.].into()),
-        Vertex::new([-1., 1., 1., 1.].into(), [0., 0.].into()),
-        Vertex::new([-1., 1., -1., 1.].into(), [0., 1.].into()),
-        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
+        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.]),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 0.]),
+        Vertex::new([-1., 1., -1., 1.].into(), [0., 1.]),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.]),
         // front (0, 1, 0)
-        Vertex::new([1., 1., -1., 1.].into(), [1., 0.].into()),
-        Vertex::new([-1., 1., -1., 1.].into(), [0., 0.].into()),
-        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.].into()),
-        Vertex::new([1., 1., 1., 1.].into(), [1., 1.].into()),
+        Vertex::new([1., 1., -1., 1.].into(), [1., 0.]),
+        Vertex::new([-1., 1., -1., 1.].into(), [0., 0.]),
+        Vertex::new([-1., 1., 1., 1.].into(), [0., 1.]),
+        Vertex::new([1., 1., 1., 1.].into(), [1., 1.]),
         // back (0, -1, 0)
-        Vertex::new([1., -1., 1., 1.].into(), [0., 0.].into()),
-        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.].into()),
-        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.].into()),
-        Vertex::new([1., -1., -1., 1.].into(), [0., 1.].into()),
+        Vertex::new([1., -1., 1., 1.].into(), [0., 0.]),
+        Vertex::new([-1., -1., 1., 1.].into(), [1., 0.]),
+        Vertex::new([-1., -1., -1., 1.].into(), [1., 1.]),
+        Vertex::new([1., -1., -1., 1.].into(), [0., 1.]),
     ];
 
     let index_data: &[u16] = &[
@@ -172,7 +172,8 @@ impl SceneRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let ktx_reader = ktx2::Reader::new(include_bytes!("../assets/rgba8.ktx2")).unwrap();
+        let ktx_reader = ktx2::Reader::new(include_bytes!("../assets/rgba8.ktx2"))
+            .expect("Failed to find skybox texture");
         let mut image = Vec::with_capacity(ktx_reader.data().len());
         for level in ktx_reader.levels() {
             image.extend_from_slice(level);
@@ -249,8 +250,8 @@ impl SceneRenderer {
 
         // Create pipelines
 
-        let shader = cube::create_shader_module_embed_source(&device);
-        let cube_pipeline_layout = cube::create_pipeline_layout(&device);
+        let shader = cube::create_shader_module_embed_source(device);
+        let cube_pipeline_layout = cube::create_pipeline_layout(device);
         let cube_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("cube_pipeline"),
             layout: Some(&cube_pipeline_layout),
@@ -322,7 +323,7 @@ impl SceneRenderer {
             None
         };
 
-        let shader = skybox::create_shader_module_embed_source(&device);
+        let shader = skybox::create_shader_module_embed_source(device);
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("skybox"),
             layout: Some(&skybox::create_pipeline_layout(device)),
