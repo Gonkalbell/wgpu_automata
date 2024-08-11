@@ -864,27 +864,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eframe_template"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "eframe",
- "egui",
- "env_logger",
- "glam",
- "ktx2",
- "log",
- "miette",
- "puffin",
- "puffin_egui",
- "serde",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
- "wgsl_bindgen",
-]
-
-[[package]]
 name = "egui"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1428,6 +1407,27 @@ name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+
+[[package]]
+name = "jm_gltf_renderer"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "eframe",
+ "egui",
+ "env_logger",
+ "glam",
+ "ktx2",
+ "log",
+ "miette",
+ "puffin",
+ "puffin_egui",
+ "serde",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
+ "wgsl_bindgen",
+]
 
 [[package]]
 name = "jni"

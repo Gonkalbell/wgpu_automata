@@ -1,5 +1,5 @@
 [package]
-name = "eframe_template"
+name = "jm_gltf_renderer"
 version = "0.1.0"
 authors = ["John Michael Bell <johnmichaelbell@gmail.com>"]
 edition = "2021"

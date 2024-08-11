@@ -45,7 +45,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "eframe template",
         native_options,
-        Box::new(|cc| Ok(Box::new(eframe_template::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(jm_gltf_renderer::TemplateApp::new(cc)))),
     )
 }
 
@@ -66,7 +66,7 @@ fn main() {
             .start(
                 "the_canvas_id",
                 web_options,
-                Box::new(|cc| Ok(Box::new(eframe_template::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(jm_gltf_renderer::TemplateApp::new(cc)))),
             )
             .await;
 
