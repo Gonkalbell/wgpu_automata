@@ -1,6 +1,6 @@
-#![warn(clippy::all, rust_2018_idioms)]
+#![warn(clippy::all)]
 
 mod app;
-mod renderer;
+pub mod renderer;
 
 pub use app::TemplateApp;

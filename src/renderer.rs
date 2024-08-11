@@ -1,5 +1,5 @@
 mod camera;
-mod shader;
+mod shaders;
 
 use eframe::wgpu;
 use puffin::profile_function;
@@ -7,15 +7,25 @@ use wgpu::util::DeviceExt;
 
 use camera::ArcBallCamera;
 
+use shaders::*;
+
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+type CameraBindGroup = shaders::skybox::WgpuBindGroup0;
+type CameraBindGroupEntries<'a> = shaders::skybox::WgpuBindGroup0Entries<'a>;
+type CameraBindGroupEntriesParams<'a> = shaders::skybox::WgpuBindGroup0EntriesParams<'a>;
+
+type SkyboxBindGroup = shaders::skybox::WgpuBindGroup1;
+type SkyboxBindGroupEntries<'a> = shaders::skybox::WgpuBindGroup1Entries<'a>;
+type SkyboxBindGroupEntriesParams<'a> = shaders::skybox::WgpuBindGroup1EntriesParams<'a>;
 
 pub struct SceneRenderer {
     camera_buf: wgpu::Buffer,
     user_camera: ArcBallCamera,
 
     // BIND GROUPS
-    camera_bgroup: wgpu::BindGroup,
-    skybox_bgroup: wgpu::BindGroup,
+    camera_bgroup: CameraBindGroup,
+    skybox_bgroup: SkyboxBindGroup,
 
     // PIPELINES
     skybox_pipeline: wgpu::RenderPipeline,
@@ -31,11 +41,17 @@ impl SceneRenderer {
 
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
-            contents: bytemuck::bytes_of(&shader::Camera::default()),
+            contents: bytemuck::bytes_of(&shaders::bgroup_camera::Camera {
+                view: Default::default(),
+                view_inv: Default::default(),
+                proj: Default::default(),
+                proj_inv: Default::default(),
+            }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let ktx_reader = ktx2::Reader::new(include_bytes!("../assets/rgba8.ktx2")).unwrap();
+        let ktx_reader = ktx2::Reader::new(include_bytes!("../assets/rgba8.ktx2"))
+            .expect("Failed to find skybox texture");
         let mut image = Vec::with_capacity(ktx_reader.data().len());
         for level in ktx_reader.levels() {
             image.extend_from_slice(level);
@@ -68,70 +84,41 @@ impl SceneRenderer {
 
         // Create bind groups
 
-        let camera_bgroup_layout =
-            device.create_bind_group_layout(&shader::CAMERA_BGROUP_LAYOUT_DESC);
-        let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera"),
-            layout: &camera_bgroup_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buf.as_entire_binding(),
-            }],
-        });
+        let camera_bgroup = CameraBindGroup::from_bindings(
+            device,
+            CameraBindGroupEntries::new(CameraBindGroupEntriesParams {
+                res_camera: camera_buf.as_entire_buffer_binding(),
+            }),
+        );
 
-        let skybox_bgroup_layout =
-            device.create_bind_group_layout(&shader::SKYBOX_BGROUP_LAYOUT_DESC);
-        let skybox_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("skybox"),
-            layout: &skybox_bgroup_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_tview),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
-                        &wgpu::SamplerDescriptor {
-                            label: Some("skybox sampler"),
-                            address_mode_u: wgpu::AddressMode::ClampToEdge,
-                            address_mode_v: wgpu::AddressMode::ClampToEdge,
-                            address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
-                            min_filter: wgpu::FilterMode::Linear,
-                            mipmap_filter: wgpu::FilterMode::Linear,
-                            ..Default::default()
-                        },
-                    )),
-                },
-            ],
-        });
+        let skybox_bgroup = SkyboxBindGroup::from_bindings(
+            device,
+            SkyboxBindGroupEntries::new(SkyboxBindGroupEntriesParams {
+                res_texture: &skybox_tview,
+                res_sampler: &device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("skybox sampler"),
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                }),
+            }),
+        );
 
         // Create pipelines
 
-        let shader = device.create_shader_module(shader::SHADER_MODULE_DESC);
-
-        let skybox_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("skybox_pipeline_layout"),
-                bind_group_layouts: &[&camera_bgroup_layout, &skybox_bgroup_layout],
-                push_constant_ranges: &[],
-            });
+        let shader = skybox::create_shader_module_embed_source(device);
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("skybox"),
-            layout: Some(&skybox_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: shader::vs_skybox::ENTRY_NAME,
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: shader::fs_skybox::ENTRY_NAME,
-                compilation_options: Default::default(),
-                targets: &[Some(color_format.into())],
-            }),
+            layout: Some(&skybox::create_pipeline_layout(device)),
+            vertex: skybox::vertex_state(&shader, &skybox::vs_skybox_entry()),
+            fragment: Some(skybox::fragment_state(
+                &shader,
+                &skybox::fs_skybox_entry([Some(color_format.into())]),
+            )),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Cw,
                 ..Default::default()
@@ -169,7 +156,7 @@ impl SceneRenderer {
 
         let view = self.user_camera.view_matrix();
         let proj = self.user_camera.projection_matrix();
-        let camera = shader::Camera {
+        let camera = shaders::bgroup_camera::Camera {
             view,
             view_inv: view.inverse(),
             proj,
@@ -183,8 +170,8 @@ impl SceneRenderer {
     pub fn render<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
         profile_function!();
 
-        rpass.set_bind_group(shader::CAMERA_GROUP, &self.camera_bgroup, &[]);
-        rpass.set_bind_group(shader::SKYBOX_GROUP, &self.skybox_bgroup, &[]);
+        self.camera_bgroup.set(rpass);
+        self.skybox_bgroup.set(rpass);
         rpass.set_pipeline(&self.skybox_pipeline);
         rpass.draw(0..3, 0..1);
     }

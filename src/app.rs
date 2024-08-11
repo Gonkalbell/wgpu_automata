@@ -14,7 +14,10 @@ impl TemplateApp {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
-        let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+        let wgpu_render_state = cc
+            .wgpu_render_state
+            .as_ref()
+            .expect("WGPU is not properly initialized");
         wgpu_render_state
             .renderer
             .write()
@@ -45,7 +48,7 @@ impl eframe::App for TemplateApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if let Some(renderer) = frame
             .wgpu_render_state()
-            .unwrap()
+            .expect("WGPU is not properly initialized")
             .renderer
             .write()
             .callback_resources
