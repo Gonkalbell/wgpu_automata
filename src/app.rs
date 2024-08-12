@@ -1,3 +1,6 @@
+//! Since I mostly want to do my own rendering, very little actually happens in the top level `App` struct. Instead,
+//! most of the rendering logic actually happens in `renderer.rs`
+
 use eframe::egui_wgpu::CallbackTrait;
 use egui::LayerId;
 
@@ -6,14 +9,12 @@ use crate::renderer::SceneRenderer;
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {}
+pub struct RendererApp {}
 
-impl TemplateApp {
+impl RendererApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // This is also where you can customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
+        // Initialize the renderer
         let wgpu_render_state = cc
             .wgpu_render_state
             .as_ref()
@@ -29,7 +30,6 @@ impl TemplateApp {
             ));
 
         // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
@@ -38,7 +38,7 @@ impl TemplateApp {
     }
 }
 
-impl eframe::App for TemplateApp {
+impl eframe::App for RendererApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
@@ -57,12 +57,23 @@ impl eframe::App for TemplateApp {
             renderer.run_ui(ctx);
         }
 
+        // Run our custom rendering as a callback. Normally eframe is set up to allow you to handle custom rendering in
+        // panels, windows, and other widgets. But the rendering is the star of the show here, so we'll render to the
+        // whole screen
         ctx.layer_painter(LayerId::background()).add(
             eframe::egui_wgpu::Callback::new_paint_callback(ctx.available_rect(), CustomCallback),
         );
     }
 }
 
+// TODO: While `eframe` does handle a lot of the boilerplate for me, it wasn't really meant for a situation where I am
+// mostly doing my own custom rendering. The main challenge is that the only way to do custom rendering is through a
+// struct that implements `CallbackTrait`, which I have several nitpicks with:
+//   - I don't have direct access to the `wgpu::Surface` or `wgpu::SurfaceTexture`. The `render` function uses the same
+//     `wgpu::RenderPass` that the rest of egui uses to render to the surface, but I can't make multiple
+//     `wgpu::RenderPass`s that all target the `wgpu::SurfaceTexture`
+//   - `CustomCallback` must be recreated every frame. In fact `new_paint_callback` allocates a new Arc every frame.
+// If any of these become a deal breaker, I may consider just using `winit` and `egui` directly. .
 struct CustomCallback;
 
 impl CallbackTrait for CustomCallback {

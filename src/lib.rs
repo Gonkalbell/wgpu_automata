@@ -3,4 +3,4 @@
 mod app;
 pub mod renderer;
 
-pub use app::TemplateApp;
+pub use app::RendererApp;
