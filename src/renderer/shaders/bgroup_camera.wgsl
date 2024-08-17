@@ -11,6 +11,4 @@ struct Camera {
     proj_inv: mat4x4<f32>,
 };
 
-@group(0)
-@binding(0)
-var<uniform> res_camera: Camera;
+@group(0) @binding(0) var<uniform> res_camera: Camera;

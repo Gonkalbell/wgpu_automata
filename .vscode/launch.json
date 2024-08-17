@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'eframe_template'",
+            "name": "Debug unit tests in library 'wgpu_automata'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=eframe_template"
+                    "--package=wgpu_automata"
                 ],
                 "filter": {
-                    "name": "eframe_template",
+                    "name": "wgpu_automata",
                     "kind": "lib"
                 }
             },
@@ -26,15 +26,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'eframe_template'",
+            "name": "Debug executable 'wgpu_automata'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=eframe_template",
-                    "--package=eframe_template"
+                    "--bin=wgpu_automata",
+                    "--package=wgpu_automata"
                 ],
                 "filter": {
-                    "name": "eframe_template",
+                    "name": "wgpu_automata",
                     "kind": "bin"
                 }
             },
@@ -44,16 +44,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'eframe_template'",
+            "name": "Debug unit tests in executable 'wgpu_automata'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=eframe_template",
-                    "--package=eframe_template"
+                    "--bin=wgpu_automata",
+                    "--package=wgpu_automata"
                 ],
                 "filter": {
-                    "name": "eframe_template",
+                    "name": "wgpu_automata",
                     "kind": "bin"
                 }
             },

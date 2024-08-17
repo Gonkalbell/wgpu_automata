@@ -1,12 +1,13 @@
 use std::f32::consts::TAU;
 
 use egui::{DragValue, Widget};
-use glam::{Mat4, Vec2, Vec3};
+use glam::{EulerRot, Mat4, Vec2, Vec3};
 use puffin::profile_function;
 
 /// A user-controlled camera that orbits around the origin.
 #[derive(Debug)]
 pub struct ArcBallCamera {
+    center_pos: Vec3,
     pitch_revs: f32,
     yaw_revs: f32,
     dist: f32,
@@ -18,6 +19,7 @@ pub struct ArcBallCamera {
 impl Default for ArcBallCamera {
     fn default() -> Self {
         Self {
+            center_pos: Vec3::ZERO,
             pitch_revs: -1. / 16.,
             yaw_revs: 1. / 16.,
             dist: 10.,
@@ -33,24 +35,34 @@ impl ArcBallCamera {
     pub fn update(&mut self, input: &egui::InputState) {
         profile_function!();
 
-        let (width, height) = input.screen_rect().size().into();
-        self.aspect_ratio = width / height;
+        let screen_size: Vec2 = <[f32; 2]>::from(input.screen_rect().size()).into();
+        self.aspect_ratio = screen_size.x / screen_size.y;
+
+        // Note: I'm using `delta` rather than `motion`. Even though `motion` is unfiltered and usually better suited for
+        // 3D camera movement, I want camera movement to directly correspond to the cursors movement across the screen.
+        let pointer_delta: Vec2 = <[f32; 2]>::from(input.pointer.delta()).into();
+
+        // Invert Y, since I want a right-hand coord system and the mouse is in a left-hand coord system
+        let clipspace_pointer_delta = Vec2::new(1., -1.) * (pointer_delta / screen_size);
+
         if input.pointer.primary_down() {
-            // Note: cursor_delta comes from the filtered [`WindowEvent::CursorMoved`] events, even though winit's docs
-            // recommend using unfiltered [`DeviceEvent::MouseMoved`] instead for 3D camera motion. But I want camera
-            // movement to be directly proportional to the delta in pixel position of the cursor.
-
-            let (delta_x, delta_y) = input.pointer.delta().into();
-            let clip_cursor_diff =
-                Vec2::new(delta_x as _, delta_y as _) / Vec2::new(width as _, height as _);
-
-            let pitch_delta = clip_cursor_diff.y * self.fov_y_revs;
-            self.pitch_revs = (self.pitch_revs - pitch_delta).clamp(-0.25, 0.25);
+            let pitch_delta = clipspace_pointer_delta.y * self.fov_y_revs;
+            self.pitch_revs = (self.pitch_revs + pitch_delta).clamp(-0.25, 0.25);
 
             let fov_x_revs =
                 2. * ((TAU * self.fov_y_revs / 2.).tan() * self.aspect_ratio).atan() / TAU;
-            let yaw_delta = clip_cursor_diff.x * fov_x_revs;
-            self.yaw_revs = (self.yaw_revs - yaw_delta).rem_euclid(1.);
+            let yaw_delta = -clipspace_pointer_delta.x * fov_x_revs;
+            self.yaw_revs = (self.yaw_revs + yaw_delta).rem_euclid(1.);
+        }
+
+        if input.pointer.secondary_down() {
+            let clip_to_world = (self.projection_matrix() * self.view_matrix()).inverse();
+            // I'm multiplying the dist here to "undo" the division that normally gets applied to perspective projection
+            // And I'm making it negative because I want it to feel like "dragging" the camera, so the scene should move
+            // in the opposite direction of the pointer.
+            let pointer_delta = (-self.dist * clipspace_pointer_delta).extend(0.).extend(0.);
+            let worldspace_pointer_delta = clip_to_world * pointer_delta;
+            self.center_pos += worldspace_pointer_delta.truncate();
         }
 
         let (_, scroll_y) = input.smooth_scroll_delta.into();
@@ -99,13 +111,18 @@ impl ArcBallCamera {
 
     /// Get the premultiplied view and projection matrices.
     pub fn view_matrix(&self) -> Mat4 {
-        let translation = Mat4::from_translation(self.dist * Vec3::Z);
-        let pitch = Mat4::from_rotation_x(TAU * self.pitch_revs);
-        let yaw = Mat4::from_rotation_y(TAU * self.yaw_revs);
-        (yaw * pitch * translation).inverse()
+        let orbit = Mat4::from_translation(self.dist * Vec3::Z);
+        let rot = Mat4::from_euler(
+            EulerRot::YXZ,
+            TAU * self.yaw_revs,
+            TAU * self.pitch_revs,
+            0.,
+        );
+        let translation = Mat4::from_translation(self.center_pos);
+        (translation * rot * orbit).inverse()
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_infinite_reverse_rh(TAU * self.fov_y_revs, self.aspect_ratio, 0.1)
+        Mat4::perspective_rh(TAU * self.fov_y_revs, self.aspect_ratio, 0.1, 1000.)
     }
 }
