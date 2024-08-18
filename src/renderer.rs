@@ -4,7 +4,7 @@ mod shaders;
 use eframe::{egui_wgpu::CallbackTrait, wgpu};
 use egui::Vec2;
 use puffin::profile_function;
-use wgpu::util::DeviceExt;
+use wgpu::{core::device, util::DeviceExt};
 
 use shaders::*;
 
@@ -22,26 +22,32 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 // If any of these become a deal breaker, I may consider just using `winit` and `egui` directly. .
 pub struct RenderCallback {
     pub response: egui::Response,
-    pub camera: app::Camera,
+    pub settings: app::RenderSettings,
 }
 
 impl CallbackTrait for RenderCallback {
     fn prepare(
         &self,
-        _device: &wgpu::Device,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
         _egui_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let rect = self.response.interact_rect;
-        let aspect_ratio = rect.aspect_ratio();
-        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
+        if let Some(renderer) = callback_resources.get_mut::<SceneRenderer>() {
+            let rect = self.response.interact_rect;
+            let aspect_ratio = rect.aspect_ratio();
+
             let camera_data = shaders::textured_quad::Camera {
-                origin: (Vec2::new(1., -1.) * self.camera.pos / rect.size()).into(),
-                scale: (self.camera.zoom * Vec2::new(1., aspect_ratio)).into(),
+                origin: (Vec2::new(1., -1.) * self.settings.pos / rect.size()).into(),
+                scale: (self.settings.zoom * Vec2::new(1., aspect_ratio)).into(),
             };
             queue.write_buffer(&renderer.camera_buf, 0, bytemuck::bytes_of(&camera_data));
+
+            if renderer.texture_size != self.settings.image_size {
+                renderer.texture_size = self.settings.image_size;
+                renderer.texture_bgroup = create_texture_bgroup(device, renderer.texture_size);
+            }
         }
         vec![]
     }
@@ -59,9 +65,10 @@ impl CallbackTrait for RenderCallback {
 }
 
 pub struct SceneRenderer {
-    pub camera_buf: wgpu::Buffer,
+    camera_buf: wgpu::Buffer,
     camera_bgroup: textured_quad::WgpuBindGroup0,
-    // texture_bgroup: textured_quad::WgpuBindGroup0,
+    texture_size: [u32; 2],
+    texture_bgroup: textured_quad::WgpuBindGroup1,
     textured_quad_pipeline: wgpu::RenderPipeline,
 }
 
@@ -86,6 +93,9 @@ impl SceneRenderer {
                 res_camera: camera_buf.as_entire_buffer_binding(),
             }),
         );
+
+        let texture_size = [1, 1];
+        let texture_bgroup = create_texture_bgroup(device, texture_size);
 
         let shader = textured_quad::create_shader_module_embed_source(device);
         let textured_quad_pipeline =
@@ -119,6 +129,8 @@ impl SceneRenderer {
         Self {
             camera_buf,
             camera_bgroup,
+            texture_size,
+            texture_bgroup,
             textured_quad_pipeline,
         }
     }
@@ -127,7 +139,43 @@ impl SceneRenderer {
         profile_function!();
 
         self.camera_bgroup.set(rpass);
+        self.texture_bgroup.set(rpass);
         rpass.set_pipeline(&self.textured_quad_pipeline);
         rpass.draw(0..4, 0..1);
     }
+}
+
+fn create_texture_bgroup(
+    device: &wgpu::Device,
+    texture_size: [u32; 2],
+) -> textured_quad::WgpuBindGroup1 {
+    let [width, height] = texture_size;
+    let texture_bgroup = textured_quad::WgpuBindGroup1::from_bindings(
+        device,
+        textured_quad::WgpuBindGroup1Entries::new(textured_quad::WgpuBindGroup1EntriesParams {
+            res_texture: &device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Cells"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+                })
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("Cells"),
+                    ..Default::default()
+                }),
+            res_sampler: &device.create_sampler(&wgpu::SamplerDescriptor {
+                ..Default::default()
+            }),
+        }),
+    );
+    texture_bgroup
 }

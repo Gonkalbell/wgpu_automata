@@ -7,16 +7,18 @@ use puffin::profile_function;
 use crate::renderer::{RenderCallback, SceneRenderer};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Camera {
+pub struct RenderSettings {
     pub pos: Vec2,
     pub zoom: f32,
+    pub image_size: [u32; 2],
 }
 
-impl Default for Camera {
+impl Default for RenderSettings {
     fn default() -> Self {
-        Camera {
+        RenderSettings {
             pos: Vec2::default(),
             zoom: 1.,
+            image_size: [100, 100],
         }
     }
 }
@@ -25,7 +27,7 @@ impl Default for Camera {
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct RendererApp {
-    camera: Camera,
+    settings: RenderSettings,
 }
 
 impl RendererApp {
@@ -101,28 +103,34 @@ impl eframe::App for RendererApp {
             });
         };
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.collapsing("Camera", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("position:");
-                    ui.add(egui::DragValue::new(&mut self.camera.pos.x));
-                    ui.add(egui::DragValue::new(&mut self.camera.pos.y));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("zoom:");
-                    ui.add(egui::DragValue::new(&mut self.camera.zoom).speed(0.02));
-                });
+        egui::SidePanel::left("Settings").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("position:");
+                ui.add(egui::DragValue::new(&mut self.settings.pos.x));
+                ui.add(egui::DragValue::new(&mut self.settings.pos.y));
             });
+            ui.horizontal(|ui| {
+                ui.label("zoom:");
+                ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
+            });
+            ui.end_row();
+            ui.horizontal(|ui| {
+                ui.label("size:");
+                ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
+                ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
+            });
+        });
 
+        egui::CentralPanel::default().show(ctx, |ui| {
             egui::Frame::canvas(ui.style()).show(ui, |ui| {
                 let (rect, response) =
                     ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 
                 if response.dragged_by(egui::PointerButton::Secondary) {
-                    self.camera.pos += response.drag_delta();
+                    self.settings.pos += response.drag_delta();
                 }
                 ui.ctx().input(|input| {
-                    self.camera.zoom *= input.zoom_delta();
+                    self.settings.zoom *= input.zoom_delta();
                 });
 
                 ui.painter()
@@ -130,7 +138,7 @@ impl eframe::App for RendererApp {
                         rect,
                         RenderCallback {
                             response,
-                            camera: self.camera.clone(),
+                            settings: self.settings.clone(),
                         },
                     ));
             });

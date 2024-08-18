@@ -2,7 +2,7 @@
 //
 // ^ wgsl_bindgen version 0.15.0
 // Changes made to this file will not be saved.
-// SourceHash: 5c2b57152068d59a0e39a9996f549c14a64a18d10b4b365cff590c1b2578ac94
+// SourceHash: ecc7bbe59f2a349ea0882cc693e2b15982545bd2353a514696291df1704115ef
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -130,20 +130,105 @@ pub mod textured_quad {
             render_pass.set_bind_group(0, &self.0, &[]);
         }
     }
+    #[derive(Debug)]
+    pub struct WgpuBindGroup1EntriesParams<'a> {
+        pub res_texture: &'a wgpu::TextureView,
+        pub res_sampler: &'a wgpu::Sampler,
+    }
+    #[derive(Clone, Debug)]
+    pub struct WgpuBindGroup1Entries<'a> {
+        pub res_texture: wgpu::BindGroupEntry<'a>,
+        pub res_sampler: wgpu::BindGroupEntry<'a>,
+    }
+    impl<'a> WgpuBindGroup1Entries<'a> {
+        pub fn new(params: WgpuBindGroup1EntriesParams<'a>) -> Self {
+            Self {
+                res_texture: wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(params.res_texture),
+                },
+                res_sampler: wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(params.res_sampler),
+                },
+            }
+        }
+        pub fn as_array(self) -> [wgpu::BindGroupEntry<'a>; 2] {
+            [self.res_texture, self.res_sampler]
+        }
+        pub fn collect<B: FromIterator<wgpu::BindGroupEntry<'a>>>(self) -> B {
+            self.as_array().into_iter().collect()
+        }
+    }
+    #[derive(Debug)]
+    pub struct WgpuBindGroup1(wgpu::BindGroup);
+    impl WgpuBindGroup1 {
+        pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
+            label: Some("TexturedQuad::BindGroup1::LayoutDescriptor"),
+            entries: &[
+                /// @binding(0): "res_texture"
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float {
+                            filterable: true,
+                        },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                /// @binding(1): "res_sampler"
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        };
+        pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+            device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
+        }
+        pub fn from_bindings(
+            device: &wgpu::Device,
+            bindings: WgpuBindGroup1Entries,
+        ) -> Self {
+            let bind_group_layout = Self::get_bind_group_layout(&device);
+            let entries = bindings.as_array();
+            let bind_group = device
+                .create_bind_group(
+                    &wgpu::BindGroupDescriptor {
+                        label: Some("TexturedQuad::BindGroup1"),
+                        layout: &bind_group_layout,
+                        entries: &entries,
+                    },
+                );
+            Self(bind_group)
+        }
+        pub fn set<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+            render_pass.set_bind_group(1, &self.0, &[]);
+        }
+    }
     #[derive(Debug, Copy, Clone)]
     pub struct WgpuBindGroups<'a> {
         pub bind_group0: &'a WgpuBindGroup0,
+        pub bind_group1: &'a WgpuBindGroup1,
     }
     impl<'a> WgpuBindGroups<'a> {
         pub fn set(&self, pass: &mut wgpu::RenderPass<'a>) {
             self.bind_group0.set(pass);
+            self.bind_group1.set(pass);
         }
     }
     pub fn set_bind_groups<'a>(
         pass: &mut wgpu::RenderPass<'a>,
         bind_group0: &'a WgpuBindGroup0,
+        bind_group1: &'a WgpuBindGroup1,
     ) {
         bind_group0.set(pass);
+        bind_group1.set(pass);
     }
     pub const ENTRY_VS_TEXTURED_QUAD: &str = "vs_textured_quad";
     pub const ENTRY_FS_TEXTURED_QUAD: &str = "fs_textured_quad";
@@ -207,8 +292,8 @@ pub mod textured_quad {
     pub struct WgpuPipelineLayout;
     impl WgpuPipelineLayout {
         pub fn bind_group_layout_entries(
-            entries: [wgpu::BindGroupLayout; 1],
-        ) -> [wgpu::BindGroupLayout; 1] {
+            entries: [wgpu::BindGroupLayout; 2],
+        ) -> [wgpu::BindGroupLayout; 2] {
             entries
         }
     }
@@ -219,6 +304,7 @@ pub mod textured_quad {
                     label: Some("TexturedQuad::PipelineLayout"),
                     bind_group_layouts: &[
                         &WgpuBindGroup0::get_bind_group_layout(device),
+                        &WgpuBindGroup1::get_bind_group_layout(device),
                     ],
                     push_constant_ranges: &[],
                 },
@@ -247,6 +333,10 @@ struct TexturedQuadVsToFs {
 
 @group(0) @binding(0) 
 var<uniform> res_camera: Camera;
+@group(1) @binding(0) 
+var res_texture: texture_2d<f32>;
+@group(1) @binding(1) 
+var res_sampler: sampler;
 var<private> POSITIONS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(vec2<f32>(-0.5f, -0.5f), vec2<f32>(0.5f, -0.5f), vec2<f32>(-0.5f, 0.5f), vec2<f32>(0.5f, 0.5f));
 var<private> TEX_COORDS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(vec2<f32>(0f, 0f), vec2<f32>(1f, 0f), vec2<f32>(0f, 1f), vec2<f32>(1f, 1f));
 
@@ -269,7 +359,8 @@ fn vs_textured_quad(@builtin(vertex_index) vertex_index: u32) -> TexturedQuadVsT
 
 @fragment 
 fn fs_textured_quad(vs_to_fs: TexturedQuadVsToFs) -> @location(0) vec4<f32> {
-    return vec4<f32>(vs_to_fs.tex_coord, 0f, 1f);
+    let _e4 = textureSample(res_texture, res_sampler, vs_to_fs.tex_coord);
+    return _e4;
 }
 "#;
 }
