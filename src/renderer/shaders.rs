@@ -2,17 +2,17 @@
 //
 // ^ wgsl_bindgen version 0.15.0
 // Changes made to this file will not be saved.
-// SourceHash: bcb14e470a905c1a6a35cd2b4c824df34070a621009207532d4eed7ec7adf103
+// SourceHash: 5c2b57152068d59a0e39a9996f549c14a64a18d10b4b365cff590c1b2578ac94
 
 #![allow(unused, non_snake_case, non_camel_case_types, non_upper_case_globals)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderEntry {
-    Skybox,
+    TexturedQuad,
 }
 impl ShaderEntry {
     pub fn create_pipeline_layout(&self, device: &wgpu::Device) -> wgpu::PipelineLayout {
         match self {
-            Self::Skybox => skybox::create_pipeline_layout(device),
+            Self::TexturedQuad => textured_quad::create_pipeline_layout(device),
         }
     }
     pub fn create_shader_module_embed_source(
@@ -20,7 +20,9 @@ impl ShaderEntry {
         device: &wgpu::Device,
     ) -> wgpu::ShaderModule {
         match self {
-            Self::Skybox => skybox::create_shader_module_embed_source(device),
+            Self::TexturedQuad => {
+                textured_quad::create_shader_module_embed_source(device)
+            }
         }
     }
 }
@@ -39,51 +41,27 @@ pub mod layout_asserts {
         assert!(std::mem::size_of:: < glam::Mat4 > () == 64);
         assert!(std::mem::align_of:: < glam::Mat4 > () == 16);
     };
-    const BGROUP_CAMERA_CAMERA_ASSERTS: () = {
-        assert!(std::mem::offset_of!(bgroup_camera::Camera, view) == 0);
-        assert!(std::mem::offset_of!(bgroup_camera::Camera, view_inv) == 64);
-        assert!(std::mem::offset_of!(bgroup_camera::Camera, proj) == 128);
-        assert!(std::mem::offset_of!(bgroup_camera::Camera, proj_inv) == 192);
-        assert!(std::mem::size_of:: < bgroup_camera::Camera > () == 256);
+    const TEXTURED_QUAD_CAMERA_ASSERTS: () = {
+        assert!(std::mem::offset_of!(textured_quad::Camera, origin) == 0);
+        assert!(std::mem::offset_of!(textured_quad::Camera, scale) == 8);
+        assert!(std::mem::size_of:: < textured_quad::Camera > () == 16);
     };
 }
-pub mod bgroup_camera {
+pub mod textured_quad {
     use super::{_root, _root::*};
-    #[repr(C, align(16))]
+    #[repr(C, align(8))]
     #[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
     pub struct Camera {
-        /// size: 64, offset: 0x0, type: `mat4x4<f32>`
-        pub view: glam::Mat4,
-        /// size: 64, offset: 0x40, type: `mat4x4<f32>`
-        pub view_inv: glam::Mat4,
-        /// size: 64, offset: 0x80, type: `mat4x4<f32>`
-        pub proj: glam::Mat4,
-        /// size: 64, offset: 0xC0, type: `mat4x4<f32>`
-        pub proj_inv: glam::Mat4,
+        /// size: 8, offset: 0x0, type: `vec2<f32>`
+        pub origin: [f32; 2],
+        /// size: 8, offset: 0x8, type: `vec2<f32>`
+        pub scale: [f32; 2],
     }
     impl Camera {
-        pub const fn new(
-            view: glam::Mat4,
-            view_inv: glam::Mat4,
-            proj: glam::Mat4,
-            proj_inv: glam::Mat4,
-        ) -> Self {
-            Self {
-                view,
-                view_inv,
-                proj,
-                proj_inv,
-            }
+        pub const fn new(origin: [f32; 2], scale: [f32; 2]) -> Self {
+            Self { origin, scale }
         }
     }
-}
-pub mod bytemuck_impls {
-    use super::{_root, _root::*};
-    unsafe impl bytemuck::Zeroable for bgroup_camera::Camera {}
-    unsafe impl bytemuck::Pod for bgroup_camera::Camera {}
-}
-pub mod skybox {
-    use super::{_root, _root::*};
     #[derive(Debug)]
     pub struct WgpuBindGroup0EntriesParams<'a> {
         pub res_camera: wgpu::BufferBinding<'a>,
@@ -112,9 +90,9 @@ pub mod skybox {
     pub struct WgpuBindGroup0(wgpu::BindGroup);
     impl WgpuBindGroup0 {
         pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
-            label: Some("Skybox::BindGroup0::LayoutDescriptor"),
+            label: Some("TexturedQuad::BindGroup0::LayoutDescriptor"),
             entries: &[
-                /// @binding(0): "_root::bgroup_camera::res_camera"
+                /// @binding(0): "res_camera"
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -122,7 +100,7 @@ pub mod skybox {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: std::num::NonZeroU64::new(
-                            std::mem::size_of::<_root::bgroup_camera::Camera>() as _,
+                            std::mem::size_of::<_root::textured_quad::Camera>() as _,
                         ),
                     },
                     count: None,
@@ -141,7 +119,7 @@ pub mod skybox {
             let bind_group = device
                 .create_bind_group(
                     &wgpu::BindGroupDescriptor {
-                        label: Some("Skybox::BindGroup0"),
+                        label: Some("TexturedQuad::BindGroup0"),
                         layout: &bind_group_layout,
                         entries: &entries,
                     },
@@ -152,108 +130,23 @@ pub mod skybox {
             render_pass.set_bind_group(0, &self.0, &[]);
         }
     }
-    #[derive(Debug)]
-    pub struct WgpuBindGroup1EntriesParams<'a> {
-        pub res_texture: &'a wgpu::TextureView,
-        pub res_sampler: &'a wgpu::Sampler,
-    }
-    #[derive(Clone, Debug)]
-    pub struct WgpuBindGroup1Entries<'a> {
-        pub res_texture: wgpu::BindGroupEntry<'a>,
-        pub res_sampler: wgpu::BindGroupEntry<'a>,
-    }
-    impl<'a> WgpuBindGroup1Entries<'a> {
-        pub fn new(params: WgpuBindGroup1EntriesParams<'a>) -> Self {
-            Self {
-                res_texture: wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(params.res_texture),
-                },
-                res_sampler: wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(params.res_sampler),
-                },
-            }
-        }
-        pub fn as_array(self) -> [wgpu::BindGroupEntry<'a>; 2] {
-            [self.res_texture, self.res_sampler]
-        }
-        pub fn collect<B: FromIterator<wgpu::BindGroupEntry<'a>>>(self) -> B {
-            self.as_array().into_iter().collect()
-        }
-    }
-    #[derive(Debug)]
-    pub struct WgpuBindGroup1(wgpu::BindGroup);
-    impl WgpuBindGroup1 {
-        pub const LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> = wgpu::BindGroupLayoutDescriptor {
-            label: Some("Skybox::BindGroup1::LayoutDescriptor"),
-            entries: &[
-                /// @binding(0): "res_texture"
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float {
-                            filterable: true,
-                        },
-                        view_dimension: wgpu::TextureViewDimension::Cube,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                /// @binding(1): "res_sampler"
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        };
-        pub fn get_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-            device.create_bind_group_layout(&Self::LAYOUT_DESCRIPTOR)
-        }
-        pub fn from_bindings(
-            device: &wgpu::Device,
-            bindings: WgpuBindGroup1Entries,
-        ) -> Self {
-            let bind_group_layout = Self::get_bind_group_layout(&device);
-            let entries = bindings.as_array();
-            let bind_group = device
-                .create_bind_group(
-                    &wgpu::BindGroupDescriptor {
-                        label: Some("Skybox::BindGroup1"),
-                        layout: &bind_group_layout,
-                        entries: &entries,
-                    },
-                );
-            Self(bind_group)
-        }
-        pub fn set<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-            render_pass.set_bind_group(1, &self.0, &[]);
-        }
-    }
     #[derive(Debug, Copy, Clone)]
     pub struct WgpuBindGroups<'a> {
         pub bind_group0: &'a WgpuBindGroup0,
-        pub bind_group1: &'a WgpuBindGroup1,
     }
     impl<'a> WgpuBindGroups<'a> {
         pub fn set(&self, pass: &mut wgpu::RenderPass<'a>) {
             self.bind_group0.set(pass);
-            self.bind_group1.set(pass);
         }
     }
     pub fn set_bind_groups<'a>(
         pass: &mut wgpu::RenderPass<'a>,
         bind_group0: &'a WgpuBindGroup0,
-        bind_group1: &'a WgpuBindGroup1,
     ) {
         bind_group0.set(pass);
-        bind_group1.set(pass);
     }
-    pub const ENTRY_VS_SKYBOX: &str = "vs_skybox";
-    pub const ENTRY_FS_SKYBOX: &str = "fs_skybox";
+    pub const ENTRY_VS_TEXTURED_QUAD: &str = "vs_textured_quad";
+    pub const ENTRY_FS_TEXTURED_QUAD: &str = "fs_textured_quad";
     #[derive(Debug)]
     pub struct VertexEntry<const N: usize> {
         pub entry_point: &'static str,
@@ -274,9 +167,9 @@ pub mod skybox {
             },
         }
     }
-    pub fn vs_skybox_entry() -> VertexEntry<0> {
+    pub fn vs_textured_quad_entry() -> VertexEntry<0> {
         VertexEntry {
-            entry_point: ENTRY_VS_SKYBOX,
+            entry_point: ENTRY_VS_TEXTURED_QUAD,
             buffers: [],
             constants: Default::default(),
         }
@@ -301,11 +194,11 @@ pub mod skybox {
             },
         }
     }
-    pub fn fs_skybox_entry(
+    pub fn fs_textured_quad_entry(
         targets: [Option<wgpu::ColorTargetState>; 1],
     ) -> FragmentEntry<1> {
         FragmentEntry {
-            entry_point: ENTRY_FS_SKYBOX,
+            entry_point: ENTRY_FS_TEXTURED_QUAD,
             targets,
             constants: Default::default(),
         }
@@ -314,8 +207,8 @@ pub mod skybox {
     pub struct WgpuPipelineLayout;
     impl WgpuPipelineLayout {
         pub fn bind_group_layout_entries(
-            entries: [wgpu::BindGroupLayout; 2],
-        ) -> [wgpu::BindGroupLayout; 2] {
+            entries: [wgpu::BindGroupLayout; 1],
+        ) -> [wgpu::BindGroupLayout; 1] {
             entries
         }
     }
@@ -323,10 +216,9 @@ pub mod skybox {
         device
             .create_pipeline_layout(
                 &wgpu::PipelineLayoutDescriptor {
-                    label: Some("Skybox::PipelineLayout"),
+                    label: Some("TexturedQuad::PipelineLayout"),
                     bind_group_layouts: &[
                         &WgpuBindGroup0::get_bind_group_layout(device),
-                        &WgpuBindGroup1::get_bind_group_layout(device),
                     ],
                     push_constant_ranges: &[],
                 },
@@ -338,50 +230,51 @@ pub mod skybox {
         let source = std::borrow::Cow::Borrowed(SHADER_STRING);
         device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("skybox.wgsl"),
+                label: Some("textured_quad.wgsl"),
                 source: wgpu::ShaderSource::Wgsl(source),
             })
     }
     pub const SHADER_STRING: &'static str = r#"
-struct CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX {
-    view: mat4x4<f32>,
-    view_inv: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    proj_inv: mat4x4<f32>,
+struct Camera {
+    origin: vec2<f32>,
+    scale: vec2<f32>,
 }
 
-struct SkyboxInterp {
+struct TexturedQuadVsToFs {
     @builtin(position) position: vec4<f32>,
-    @location(0) tex_coord: vec3<f32>,
+    @location(0) tex_coord: vec2<f32>,
 }
 
 @group(0) @binding(0) 
-var<uniform> res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX: CameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX;
-@group(1) @binding(0) 
-var res_texture: texture_cube<f32>;
-@group(1) @binding(1) 
-var res_sampler: sampler;
+var<uniform> res_camera: Camera;
+var<private> POSITIONS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(vec2<f32>(-0.5f, -0.5f), vec2<f32>(0.5f, -0.5f), vec2<f32>(-0.5f, 0.5f), vec2<f32>(0.5f, 0.5f));
+var<private> TEX_COORDS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(vec2<f32>(0f, 0f), vec2<f32>(1f, 0f), vec2<f32>(0f, 1f), vec2<f32>(1f, 1f));
 
 @vertex 
-fn vs_skybox(@builtin(vertex_index) vertex_index: u32) -> SkyboxInterp {
-    var result: SkyboxInterp;
+fn vs_textured_quad(@builtin(vertex_index) vertex_index: u32) -> TexturedQuadVsToFs {
+    var position: vec2<f32>;
+    var result: TexturedQuadVsToFs;
 
-    let tmp1_ = (i32(vertex_index) / 2i);
-    let tmp2_ = (i32(vertex_index) & 1i);
-    let pos = vec4<f32>(((f32(tmp1_) * 4f) - 1f), ((f32(tmp2_) * 4f) - 1f), 1f, 1f);
-    result.position = pos;
-    let _e24 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.proj_inv;
-    let dir = vec4<f32>((_e24 * pos).xyz, 0f);
-    let _e32 = res_cameraX_naga_oil_mod_XMJTXE33VOBPWGYLNMVZGCX.view_inv;
-    result.tex_coord = (_e32 * dir).xyz;
-    let _e35 = result;
-    return _e35;
+    let _e2 = res_camera.scale;
+    let _e6 = POSITIONS[vertex_index];
+    let _e10 = res_camera.origin;
+    position = ((_e2 * _e6) + _e10);
+    let _e15 = position;
+    result.position = vec4<f32>(_e15, 0f, 1f);
+    let _e22 = TEX_COORDS[vertex_index];
+    result.tex_coord = _e22;
+    let _e23 = result;
+    return _e23;
 }
 
 @fragment 
-fn fs_skybox(vertex: SkyboxInterp) -> @location(0) vec4<f32> {
-    let _e4 = textureSample(res_texture, res_sampler, vertex.tex_coord);
-    return _e4;
+fn fs_textured_quad(vs_to_fs: TexturedQuadVsToFs) -> @location(0) vec4<f32> {
+    return vec4<f32>(vs_to_fs.tex_coord, 0f, 1f);
 }
 "#;
+}
+pub mod bytemuck_impls {
+    use super::{_root, _root::*};
+    unsafe impl bytemuck::Zeroable for textured_quad::Camera {}
+    unsafe impl bytemuck::Pod for textured_quad::Camera {}
 }

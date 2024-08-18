@@ -43,7 +43,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "eframe template",
+        "wgpu automatas",
         native_options,
         Box::new(|cc| Ok(Box::new(wgpu_automata::RendererApp::new(cc)))),
     )

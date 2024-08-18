@@ -1,15 +1,32 @@
 //! Since I mostly want to do my own rendering, very little actually happens in the top level `App` struct. Instead,
 //! most of the rendering logic actually happens in `renderer.rs`
 
-use eframe::egui_wgpu::CallbackTrait;
-use egui::LayerId;
+use egui::Vec2;
+use puffin::profile_function;
 
-use crate::renderer::SceneRenderer;
+use crate::renderer::{RenderCallback, SceneRenderer};
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Camera {
+    pub pos: Vec2,
+    pub zoom: f32,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Camera {
+            pos: Vec2::default(),
+            zoom: 1.,
+        }
+    }
+}
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct RendererApp {}
+pub struct RendererApp {
+    camera: Camera,
+}
 
 impl RendererApp {
     /// Called once before the first frame.
@@ -46,7 +63,7 @@ impl eframe::App for RendererApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(renderer) = frame
+        if let Some(_renderer) = frame
             .wgpu_render_state()
             .expect("WGPU is not properly initialized")
             .renderer
@@ -54,56 +71,69 @@ impl eframe::App for RendererApp {
             .callback_resources
             .get_mut::<SceneRenderer>()
         {
-            renderer.run_ui(ctx);
-        }
+            profile_function!();
 
-        // Run our custom rendering as a callback. Normally eframe is set up to allow you to handle custom rendering in
-        // panels, windows, and other widgets. But the rendering is the star of the show here, so we'll render to the
-        // whole screen
-        ctx.layer_painter(LayerId::background()).add(
-            eframe::egui_wgpu::Callback::new_paint_callback(ctx.available_rect(), CustomCallback),
-        );
-    }
-}
+            egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        ui.menu_button("File", |ui| {
+                            if ui.button("Quit").clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        });
 
-// TODO: While `eframe` does handle a lot of the boilerplate for me, it wasn't really meant for a situation where I am
-// mostly doing my own custom rendering. The main challenge is that the only way to do custom rendering is through a
-// struct that implements `CallbackTrait`, which I have several nitpicks with:
-//   - I don't have direct access to the `wgpu::Surface` or `wgpu::SurfaceTexture`. The `render` function uses the same
-//     `wgpu::RenderPass` that the rest of egui uses to render to the surface, but I can't make multiple
-//     `wgpu::RenderPass`s that all target the `wgpu::SurfaceTexture`
-//   - `CustomCallback` must be recreated every frame. In fact `new_paint_callback` allocates a new Arc every frame.
-// If any of these become a deal breaker, I may consider just using `winit` and `egui` directly. .
-struct CustomCallback;
+                        // eframe doesn't support puffin on browser because it might not have a high resolution clock.
+                        let mut are_scopes_on = puffin::are_scopes_on();
+                        ui.toggle_value(&mut are_scopes_on, "Profiler");
+                        puffin::set_scopes_on(are_scopes_on);
 
-impl CallbackTrait for CustomCallback {
-    fn paint<'a>(
-        &'a self,
-        _info: egui::PaintCallbackInfo,
-        render_pass: &mut eframe::wgpu::RenderPass<'a>,
-        callback_resources: &'a eframe::egui_wgpu::CallbackResources,
-    ) {
-        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
-            renderer.render(render_pass);
-        }
-    }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                            if ui.button("reset UI").clicked() {
+                                *self = Default::default();
+                                ui.ctx().memory_mut(|w| *w = Default::default());
+                            }
+                        });
+                    }
+                });
 
-    fn prepare(
-        &self,
-        device: &eframe::wgpu::Device,
-        queue: &eframe::wgpu::Queue,
-        screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
-        egui_encoder: &mut eframe::wgpu::CommandEncoder,
-        callback_resources: &mut eframe::egui_wgpu::CallbackResources,
-    ) -> Vec<eframe::wgpu::CommandBuffer> {
-        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
-            return Vec::from_iter(renderer.prepare(
-                device,
-                queue,
-                screen_descriptor,
-                egui_encoder,
-            ));
-        }
-        Vec::new()
+                puffin_egui::show_viewport_if_enabled(ctx);
+            });
+        };
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.collapsing("Camera", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("position:");
+                    ui.add(egui::DragValue::new(&mut self.camera.pos.x));
+                    ui.add(egui::DragValue::new(&mut self.camera.pos.y));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("zoom:");
+                    ui.add(egui::DragValue::new(&mut self.camera.zoom).speed(0.02));
+                });
+            });
+
+            egui::Frame::canvas(ui.style()).show(ui, |ui| {
+                let (rect, response) =
+                    ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+
+                if response.dragged_by(egui::PointerButton::Secondary) {
+                    self.camera.pos += response.drag_delta();
+                }
+                ui.ctx().input(|input| {
+                    self.camera.zoom *= input.zoom_delta();
+                });
+
+                ui.painter()
+                    .add(eframe::egui_wgpu::Callback::new_paint_callback(
+                        rect,
+                        RenderCallback {
+                            response,
+                            camera: self.camera.clone(),
+                        },
+                    ));
+            });
+        });
     }
 }
