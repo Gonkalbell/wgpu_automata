@@ -3,16 +3,21 @@
 
 mod renderer;
 
-use egui::Vec2;
+use egui::{CollapsingHeader, Vec2};
 use puffin::profile_function;
 
 use renderer::{RenderCallback, SceneRenderer};
+use web_time::Duration;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct RenderSettings {
     pub pos: Vec2,
     pub zoom: f32,
+
     pub image_size: [u32; 2],
+
+    pub playing: bool,
+    pub update_rate: Duration,
 }
 
 impl Default for RenderSettings {
@@ -21,6 +26,8 @@ impl Default for RenderSettings {
             pos: Vec2::default(),
             zoom: 1.,
             image_size: [100, 100],
+            playing: true,
+            update_rate: Duration::from_secs_f32(0.1),
         }
     }
 }
@@ -106,21 +113,32 @@ impl eframe::App for RendererApp {
         };
 
         egui::SidePanel::left("Settings").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("position:");
-                ui.add(egui::DragValue::new(&mut self.settings.pos.x));
-                ui.add(egui::DragValue::new(&mut self.settings.pos.y));
+            CollapsingHeader::new("Camera").default_open(true).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("position:");
+                    ui.add(egui::DragValue::new(&mut self.settings.pos.x));
+                    ui.add(egui::DragValue::new(&mut self.settings.pos.y));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("zoom:");
+                    ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
+                });
             });
-            ui.horizontal(|ui| {
-                ui.label("zoom:");
-                ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
+            CollapsingHeader::new("Cells").default_open(true).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("size:");
+                    ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
+                    ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
+                });
             });
-            ui.end_row();
-            ui.horizontal(|ui| {
-                ui.label("size:");
-                ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
-                ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
+            CollapsingHeader::new("Simulation").default_open(true).show(ui, |ui| {
+                ui.toggle_value(&mut self.settings.playing, "Play");
+                if self.settings.playing {
+                    ui.ctx().request_repaint();
+                }
             });
+
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
