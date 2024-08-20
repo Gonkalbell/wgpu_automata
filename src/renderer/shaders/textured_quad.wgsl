@@ -3,16 +3,10 @@ struct Camera {
     scale: vec2<f32>,
 }
 
-@group(0)
-@binding(0)
-var<uniform> res_camera: Camera;
+@group(0) @binding(0) var<uniform> res_camera: Camera;
 
-@group(1)
-@binding(0)
-var res_texture: texture_2d<f32>;
-@group(1)
-@binding(1)
-var res_sampler: sampler;
+@group(1) @binding(0) var res_texture: texture_2d<f32>;
+@group(1) @binding(1) var res_sampler: sampler;
 
 var<private> POSITIONS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(
     vec2<f32>(-0.5, -0.5),

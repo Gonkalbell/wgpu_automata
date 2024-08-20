@@ -4,9 +4,39 @@ mod shaders;
 use eframe::{egui_wgpu::CallbackTrait, wgpu};
 use egui::Vec2;
 use puffin::profile_function;
-use wgpu::{core::device, util::DeviceExt};
+use shaders::textured_quad;
+use wgpu::util::DeviceExt;
 
-use shaders::*;
+const SHADER_SRC: &str = include_str!("renderer/shaders/textured_quad.wgsl");
+const SHADER_DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
+    label: Some("textured_quad.wgsl"),
+    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SHADER_SRC)),
+};
+
+#[derive(Clone, Copy)]
+pub struct Camera {
+    /// size: 8, offset: 0x0, type: `vec2<f32>`
+    pub origin: [f32; 2],
+    /// size: 8, offset: 0x8, type: `vec2<f32>`
+    pub scale: [f32; 2],
+}
+unsafe impl bytemuck::Zeroable for Camera {}
+unsafe impl bytemuck::Pod for Camera {}
+
+mod res_camera {
+    pub const GROUP: u32 = 0;
+    pub const BINDING: u32 = 0;
+    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
+        binding: BINDING,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<super::Camera>() as _),
+        },
+        count: None,
+    };
+}
 
 use crate::app;
 
@@ -38,7 +68,7 @@ impl CallbackTrait for RenderCallback {
             let rect = self.response.interact_rect;
             let aspect_ratio = rect.aspect_ratio();
 
-            let camera_data = shaders::textured_quad::Camera {
+            let camera_data = Camera {
                 origin: (Vec2::new(1., -1.) * self.settings.pos / rect.size()).into(),
                 scale: (self.settings.zoom * Vec2::new(1., aspect_ratio)).into(),
             };
@@ -66,7 +96,7 @@ impl CallbackTrait for RenderCallback {
 
 pub struct SceneRenderer {
     camera_buf: wgpu::Buffer,
-    camera_bgroup: textured_quad::WgpuBindGroup0,
+    camera_bgroup: wgpu::BindGroup,
     texture_size: [u32; 2],
     texture_bgroup: textured_quad::WgpuBindGroup1,
     textured_quad_pipeline: wgpu::RenderPipeline,
@@ -80,36 +110,56 @@ impl SceneRenderer {
     ) -> Self {
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera"),
-            contents: bytemuck::bytes_of(&textured_quad::Camera {
+            contents: bytemuck::bytes_of(&Camera {
                 origin: Vec2::ZERO.into(),
                 scale: Vec2::new(9. / 16., 1.).into(),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bgroup = textured_quad::WgpuBindGroup0::from_bindings(
-            device,
-            textured_quad::WgpuBindGroup0Entries::new(textured_quad::WgpuBindGroup0EntriesParams {
-                res_camera: camera_buf.as_entire_buffer_binding(),
-            }),
-        );
+        let camera_bgroup_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera"),
+                entries: &[res_camera::LAYOUT_DESC],
+            });
+        let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("camera"),
+            layout: &camera_bgroup_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: res_camera::BINDING,
+                resource: camera_buf.as_entire_binding(),
+            }],
+        });
 
         let texture_size = [1, 1];
         let texture_bgroup = create_texture_bgroup(device, texture_size);
 
-        let shader = textured_quad::create_shader_module_embed_source(device);
+        let module = &device.create_shader_module(SHADER_DESC);
         let textured_quad_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("textured_quad"),
-                layout: Some(&textured_quad::create_pipeline_layout(device)),
-                vertex: textured_quad::vertex_state(
-                    &shader,
-                    &textured_quad::vs_textured_quad_entry(),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("textured_quad pipeline"),
+                        bind_group_layouts: &[
+                            &camera_bgroup_layout,
+                            &textured_quad::WgpuBindGroup1::get_bind_group_layout(device),
+                        ],
+                        push_constant_ranges: &[],
+                    }),
                 ),
-                fragment: Some(textured_quad::fragment_state(
-                    &shader,
-                    &textured_quad::fs_textured_quad_entry([Some(color_format.into())]),
-                )),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: "vs_textured_quad",
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: "fs_textured_quad",
+                    targets: &[Some(color_format.into())],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
                     front_face: wgpu::FrontFace::Cw,
@@ -138,7 +188,7 @@ impl SceneRenderer {
     pub fn render<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
         profile_function!();
 
-        self.camera_bgroup.set(rpass);
+        rpass.set_bind_group(res_camera::GROUP, &self.camera_bgroup, &[]);
         self.texture_bgroup.set(rpass);
         rpass.set_pipeline(&self.textured_quad_pipeline);
         rpass.draw(0..4, 0..1);
