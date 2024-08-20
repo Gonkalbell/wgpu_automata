@@ -1,11 +1,16 @@
+use crate::app;
 use eframe::{egui_wgpu::CallbackTrait, wgpu};
 use egui::Vec2;
 use puffin::profile_function;
 use wgpu::util::DeviceExt;
 
-const SHADER_SRC: &str = include_str!("textured_quad.wgsl");
+// I previously experimented with using wgsl_bindgen to generate these rust boilerplate for my shader, but there are
+// serious limitations with it (and the wgsl_to_wgpu crate). The main limitation is that it generates invalid bind group
+// structs for bind groups shared between entry points, compute & vertex shaders, or different shader modules.
+
+const SHADER_SRC: &str = include_str!("automata.wgsl");
 const SHADER_DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
-    label: Some("textured_quad.wgsl"),
+    label: Some("automata.wgsl"),
     source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SHADER_SRC)),
 };
 
@@ -20,6 +25,34 @@ pub struct Camera {
 unsafe impl bytemuck::Zeroable for Camera {}
 unsafe impl bytemuck::Pod for Camera {}
 
+mod res_cur_tex {
+    pub const BINDING: u32 = 0;
+    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
+        binding: BINDING,
+        visibility: wgpu::ShaderStages::all(),
+        ty: wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::ReadOnly,
+            format: wgpu::TextureFormat::R32Uint,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        },
+        count: None,
+    };
+}
+
+mod res_next_tex {
+    pub const BINDING: u32 = 1;
+    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
+        binding: BINDING,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format: wgpu::TextureFormat::R32Uint,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        },
+        count: None,
+    };
+}
+
 mod res_camera {
     pub const BINDING: u32 = 0;
     pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
@@ -33,32 +66,6 @@ mod res_camera {
         count: None,
     };
 }
-
-mod res_texture {
-    pub const BINDING: u32 = 0;
-    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
-        binding: BINDING,
-        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
-    };
-}
-
-mod res_sampler {
-    pub const BINDING: u32 = 1;
-    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
-        binding: BINDING,
-        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        count: None,
-    };
-}
-
-use crate::app;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -162,8 +169,8 @@ impl SceneRenderer {
                     &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: Some("textured_quad pipeline"),
                         bind_group_layouts: &[
-                            &camera_bgroup_layout,
                             &create_texture_bgroup_layout(device),
+                            &camera_bgroup_layout,
                         ],
                         push_constant_ranges: &[],
                     }),
@@ -208,58 +215,57 @@ impl SceneRenderer {
     pub fn render<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
         profile_function!();
 
-        rpass.set_bind_group(0, &self.camera_bgroup, &[]);
-        rpass.set_bind_group(1, &self.texture_bgroup, &[]);
+        rpass.set_bind_group(0, &self.texture_bgroup, &[]);
+        rpass.set_bind_group(1, &self.camera_bgroup, &[]);
         rpass.set_pipeline(&self.textured_quad_pipeline);
         rpass.draw(0..4, 0..1);
     }
 }
 
+fn create_texture_bgroup_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Cells"),
+        entries: &[res_cur_tex::LAYOUT_DESC, res_next_tex::LAYOUT_DESC],
+    })
+}
+
 fn create_texture_bgroup(device: &wgpu::Device, texture_size: [u32; 2]) -> wgpu::BindGroup {
     let [width, height] = texture_size;
-    let res_texture = &device
-        .create_texture(&wgpu::TextureDescriptor {
-            label: Some("Cells"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-        })
-        .create_view(&wgpu::TextureViewDescriptor {
-            label: Some("Cells"),
-            ..Default::default()
-        });
-    let res_sampler = &device.create_sampler(&wgpu::SamplerDescriptor {
-        ..Default::default()
+    let [texture_a, texture_b] = ["CellsA", "CellsB"].map(|label| {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Uint,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[wgpu::TextureFormat::R32Uint],
+            })
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: Some(label),
+                ..Default::default()
+            })
     });
 
     let bind_group_layout = create_texture_bgroup_layout(device);
     device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Cells"),
+        label: Some("CellsA -> CellsB"),
         layout: &bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(res_texture),
+                binding: res_cur_tex::BINDING,
+                resource: wgpu::BindingResource::TextureView(&texture_a),
             },
             wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(res_sampler),
+                binding: res_next_tex::BINDING,
+                resource: wgpu::BindingResource::TextureView(&texture_b),
             },
         ],
-    })
-}
-
-fn create_texture_bgroup_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Cells"),
-        entries: &[res_texture::LAYOUT_DESC, res_sampler::LAYOUT_DESC],
     })
 }

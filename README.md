@@ -1,8 +1,6 @@
-# eframe template
+# WGPU automatas
 
-This is just a simple scene renderer for me to learn more about WGPU and other rendering techniques.
-
-Right now I'm following [this article](toji.github.io/webgpu-gltf-case-study) for efficiently loading and render GLTF models.
+Some simple cellular automata examples that run on the gpu
 
 I am using [eframe_template](https://github.com/emilk/eframe_template) since I want to use egui for debug menus. It also handles a lot of boilerplate for me, such as initializing winit and wgpu for both native and web platforms and running the event loop.
 
@@ -10,9 +8,9 @@ I am using [eframe_template](https://github.com/emilk/eframe_template) since I w
 
 This application can run natively on desktop platforms (Windows, MacOS, and Linux) as well as on the web using wasm.
 
-You can try the wasm version [here](https://gonkalbell.github.io/jmb-gtlf-renderer/)
+You can try the wasm version [here](https://gonkalbell.github.io/wgpu_automata/)
 
-Or you can download prebuilt binaries for your OS [here](https://github.com/Gonkalbell/jmb-gtlf-renderer/releases/tag/main-release)
+Or you can download prebuilt binaries for your OS [here](https://github.com/Gonkalbell/wgpu_automata/releases/tag/main-release)
 
 ## Building
 

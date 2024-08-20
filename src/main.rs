@@ -14,7 +14,9 @@ fn get_wgpu_options() -> WgpuConfiguration {
             };
             wgpu::DeviceDescriptor {
                 label: Some("egui wgpu device"),
-                required_features: wgpu::Features::default() | wgpu::Features::POLYGON_MODE_LINE,
+                required_features: wgpu::Features::default()
+                    | wgpu::Features::POLYGON_MODE_LINE
+                    | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                 required_limits: wgpu::Limits {
                     // When using a depth buffer, we have to be able to create a texture
                     // large enough for the entire surface, and we want to support 4k+ displays.
