@@ -1,10 +1,12 @@
 //! Since I mostly want to do my own rendering, very little actually happens in the top level `App` struct. Instead,
 //! most of the rendering logic actually happens in `renderer.rs`
 
+mod renderer;
+
 use egui::Vec2;
 use puffin::profile_function;
 
-use crate::renderer::{RenderCallback, SceneRenderer};
+use renderer::{RenderCallback, SceneRenderer};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct RenderSettings {
