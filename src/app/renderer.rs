@@ -89,7 +89,6 @@ impl SceneRenderer {
             contents: bytemuck::bytes_of(&Camera {
                 origin: Vec2::ZERO.into(),
                 scale: Vec2::new(9. / 16., 1.).into(),
-                ..Default::default()
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -258,7 +257,6 @@ impl CallbackTrait for RenderCallback {
             let camera_data = Camera {
                 origin: (Vec2::new(1., -1.) * self.settings.pos / rect.size()).into(),
                 scale: (self.settings.zoom * Vec2::new(1., aspect_ratio)).into(),
-                ..Default::default()
             };
             queue.write_buffer(&renderer.camera_buf, 0, bytemuck::bytes_of(&camera_data));
 

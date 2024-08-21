@@ -113,32 +113,37 @@ impl eframe::App for RendererApp {
         };
 
         egui::SidePanel::left("Settings").show(ctx, |ui| {
-            CollapsingHeader::new("Camera").default_open(true).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("position:");
-                    ui.add(egui::DragValue::new(&mut self.settings.pos.x));
-                    ui.add(egui::DragValue::new(&mut self.settings.pos.y));
-                });
+            CollapsingHeader::new("Camera")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("position:");
+                        ui.add(egui::DragValue::new(&mut self.settings.pos.x));
+                        ui.add(egui::DragValue::new(&mut self.settings.pos.y));
+                    });
 
-                ui.horizontal(|ui| {
-                    ui.label("zoom:");
-                    ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
+                    ui.horizontal(|ui| {
+                        ui.label("zoom:");
+                        ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
+                    });
                 });
-            });
-            CollapsingHeader::new("Cells").default_open(true).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("size:");
-                    ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
-                    ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
+            CollapsingHeader::new("Cells")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("size:");
+                        ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
+                        ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
+                    });
                 });
-            });
-            CollapsingHeader::new("Simulation").default_open(true).show(ui, |ui| {
-                ui.toggle_value(&mut self.settings.playing, "Play");
-                if self.settings.playing {
-                    ui.ctx().request_repaint();
-                }
-            });
-
+            CollapsingHeader::new("Simulation")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.toggle_value(&mut self.settings.playing, "Play");
+                    if self.settings.playing {
+                        ui.ctx().request_repaint();
+                    }
+                });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
