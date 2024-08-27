@@ -1,72 +1,14 @@
-use crate::app;
+use crate::{
+    app,
+    shaders::automata::{self, res_camera, res_cur_tex, res_next_tex},
+};
 use eframe::{egui_wgpu::CallbackTrait, wgpu};
 use egui::Vec2;
 use puffin::profile_function;
 use wgpu::util::DeviceExt;
 
-// I previously experimented with using wgsl_bindgen to generate these rust boilerplate for my shader, but there are
-// serious limitations with it (and the wgsl_to_wgpu crate). The main limitation is that it generates invalid bind group
-// structs for bind groups shared between entry points, compute & vertex shaders, or different shader modules.
-
-const SHADER_SRC: &str = include_str!("automata.wgsl");
-const SHADER_DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
-    label: Some("automata.wgsl"),
-    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SHADER_SRC)),
-};
-
-#[allow(unused)]
-#[derive(Clone, Copy, Default)]
-pub struct Camera {
-    /// size: 8, offset: 0x0, type: `vec2<f32>`
-    pub origin: [f32; 2],
-    /// size: 8, offset: 0x8, type: `vec2<f32>`
-    pub scale: [f32; 2],
-}
-unsafe impl bytemuck::Zeroable for Camera {}
-unsafe impl bytemuck::Pod for Camera {}
-
-mod res_cur_tex {
-    pub const BINDING: u32 = 0;
-    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
-        binding: BINDING,
-        visibility: wgpu::ShaderStages::all(),
-        ty: wgpu::BindingType::StorageTexture {
-            access: wgpu::StorageTextureAccess::ReadOnly,
-            format: wgpu::TextureFormat::R32Uint,
-            view_dimension: wgpu::TextureViewDimension::D2,
-        },
-        count: None,
-    };
-}
-
-mod res_next_tex {
-    pub const BINDING: u32 = 1;
-    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
-        binding: BINDING,
-        visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::StorageTexture {
-            access: wgpu::StorageTextureAccess::WriteOnly,
-            format: wgpu::TextureFormat::R32Uint,
-            view_dimension: wgpu::TextureViewDimension::D2,
-        },
-        count: None,
-    };
-}
-
-mod res_camera {
-    pub const BINDING: u32 = 0;
-    pub const LAYOUT_DESC: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
-        binding: BINDING,
-        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<super::Camera>() as _),
-        },
-        count: None,
-    };
-}
-
+const TEXTURE_BGROUP_INDEX: u32 = automata::res_cur_tex::GROUP;
+const CAMERA_BGROUP_INDEX: u32 = automata::res_camera::GROUP;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct SceneRenderer {
@@ -86,7 +28,7 @@ impl SceneRenderer {
     ) -> Self {
         let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera"),
-            contents: bytemuck::bytes_of(&Camera {
+            contents: bytemuck::bytes_of(&automata::Camera {
                 origin: Vec2::ZERO.into(),
                 scale: Vec2::new(9. / 16., 1.).into(),
             }),
@@ -96,7 +38,7 @@ impl SceneRenderer {
         let camera_bgroup_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("camera"),
-                entries: &[res_camera::LAYOUT_DESC],
+                entries: &[res_camera::LAYOUT],
             });
         let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("camera"),
@@ -110,7 +52,7 @@ impl SceneRenderer {
         let texture_size = [1, 1];
         let texture_bgroups = create_texture_bgroups(device, texture_size);
 
-        let module = &device.create_shader_module(SHADER_DESC);
+        let module = automata::create_shader_module(device);
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("textured_quad pipeline"),
             bind_group_layouts: &[&create_texture_bgroup_layout(device), &camera_bgroup_layout],
@@ -120,18 +62,11 @@ impl SceneRenderer {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("textured_quad"),
                 layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module,
-                    entry_point: "vs_textured_quad",
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module,
-                    entry_point: "fs_textured_quad",
-                    targets: &[Some(color_format.into())],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
+                vertex: automata::vertex_state(&module, &automata::vs_textured_quad_entry()),
+                fragment: Some(automata::fragment_state(
+                    &module,
+                    &automata::fs_textured_quad_entry([Some(color_format.into())]),
+                )),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
                     front_face: wgpu::FrontFace::Cw,
@@ -158,7 +93,7 @@ impl SceneRenderer {
                         push_constant_ranges: &[],
                     }),
                 ),
-                module,
+                module: &module,
                 entry_point: "paint_pixel",
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             });
@@ -175,9 +110,19 @@ impl SceneRenderer {
 }
 
 fn create_texture_bgroup_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let visibility = wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE;
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Cells"),
-        entries: &[res_cur_tex::LAYOUT_DESC, res_next_tex::LAYOUT_DESC],
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                visibility,
+                ..res_cur_tex::LAYOUT
+            },
+            wgpu::BindGroupLayoutEntry {
+                visibility,
+                ..res_next_tex::LAYOUT
+            },
+        ],
     })
 }
 
@@ -254,7 +199,7 @@ impl CallbackTrait for RenderCallback {
             let rect = self.response.interact_rect;
             let aspect_ratio = rect.aspect_ratio();
 
-            let camera_data = Camera {
+            let camera_data = automata::Camera {
                 origin: (Vec2::new(1., -1.) * self.settings.pos / rect.size()).into(),
                 scale: (self.settings.zoom * Vec2::new(1., aspect_ratio)).into(),
             };
@@ -293,8 +238,8 @@ impl CallbackTrait for RenderCallback {
                 let this = &renderer;
                 profile_function!();
 
-                render_pass.set_bind_group(0, &this.texture_bgroups[0], &[]);
-                render_pass.set_bind_group(1, &this.camera_bgroup, &[]);
+                render_pass.set_bind_group(TEXTURE_BGROUP_INDEX, &this.texture_bgroups[0], &[]);
+                render_pass.set_bind_group(CAMERA_BGROUP_INDEX, &this.camera_bgroup, &[]);
                 render_pass.set_pipeline(&this.textured_quad_pipeline);
                 render_pass.draw(0..4, 0..1);
             };

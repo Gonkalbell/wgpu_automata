@@ -19,7 +19,6 @@ serde = { version = "1", features = ["derive"] }
 puffin = { version = "0.19.1", features = ["web"] }
 puffin_egui = "0.29.0"
 bytemuck = { version = "1.16.3", features = ["derive"] }
-glam = { version = "0.28.0", features = ["bytemuck", "serde"] }
 ktx2 = "0.3.0"
 wgpu = "0.20.1"
 web-time = "1.1.0"
@@ -34,7 +33,7 @@ wasm-bindgen-futures = "0.4"
 
 # to access the DOM (to hide the loading text)
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "0.3.4"
+version = "=0.3.69"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
@@ -42,3 +41,6 @@ opt-level = 2 # fast and small wasm
 # Optimize all dependencies even in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
+
+[build-dependencies]
+wgsl_to_wgpu = { git = "https://github.com/Gonkalbell/wgsl_to_wgpu.git" }

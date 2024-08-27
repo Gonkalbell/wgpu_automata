@@ -98,14 +98,14 @@ impl eframe::App for RendererApp {
                         let mut are_scopes_on = puffin::are_scopes_on();
                         ui.toggle_value(&mut are_scopes_on, "Profiler");
                         puffin::set_scopes_on(are_scopes_on);
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                            if ui.button("reset UI").clicked() {
-                                *self = Default::default();
-                                ui.ctx().memory_mut(|w| *w = Default::default());
-                            }
-                        });
                     }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        if ui.button("reset UI").clicked() {
+                            *self = Default::default();
+                            ui.ctx().memory_mut(|w| *w = Default::default());
+                        }
+                    });
                 });
 
                 puffin_egui::show_viewport_if_enabled(ctx);
