@@ -6,7 +6,7 @@ mod renderer;
 use egui::{CollapsingHeader, Vec2};
 use puffin::profile_function;
 
-use renderer::{RenderCallback, SceneRenderer};
+use renderer::{Example, RenderCallback};
 use web_time::Duration;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -51,9 +51,8 @@ impl RendererApp {
             .renderer
             .write()
             .callback_resources
-            .insert(SceneRenderer::init(
+            .insert(Example::init(
                 &wgpu_render_state.device,
-                &wgpu_render_state.queue,
                 wgpu_render_state.target_format,
             ));
 
@@ -74,43 +73,34 @@ impl eframe::App for RendererApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(_renderer) = frame
-            .wgpu_render_state()
-            .expect("WGPU is not properly initialized")
-            .renderer
-            .write()
-            .callback_resources
-            .get_mut::<SceneRenderer>()
-        {
-            profile_function!();
+        profile_function!();
 
-            egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        ui.menu_button("File", |ui| {
-                            if ui.button("Quit").clicked() {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            }
-                        });
-
-                        // eframe doesn't support puffin on browser because it might not have a high resolution clock.
-                        let mut are_scopes_on = puffin::are_scopes_on();
-                        ui.toggle_value(&mut are_scopes_on, "Profiler");
-                        puffin::set_scopes_on(are_scopes_on);
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                        if ui.button("reset UI").clicked() {
-                            *self = Default::default();
-                            ui.ctx().memory_mut(|w| *w = Default::default());
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
-                });
 
-                puffin_egui::show_viewport_if_enabled(ctx);
+                    // eframe doesn't support puffin on browser because it might not have a high resolution clock.
+                    let mut are_scopes_on = puffin::are_scopes_on();
+                    ui.toggle_value(&mut are_scopes_on, "Profiler");
+                    puffin::set_scopes_on(are_scopes_on);
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui.button("reset UI").clicked() {
+                        *self = Default::default();
+                        ui.ctx().memory_mut(|w| *w = Default::default());
+                    }
+                });
             });
-        };
+
+            puffin_egui::show_viewport_if_enabled(ctx);
+        });
 
         egui::SidePanel::left("Settings").show(ctx, |ui| {
             CollapsingHeader::new("Camera")

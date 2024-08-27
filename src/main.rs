@@ -41,7 +41,6 @@ fn main() -> eframe::Result {
                 .expect("Failed to load icon"),
         ),
         wgpu_options: get_wgpu_options(),
-        depth_buffer: 32,
         ..Default::default()
     };
     eframe::run_native(

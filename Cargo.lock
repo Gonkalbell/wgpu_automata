@@ -1420,6 +1420,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nanorand"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
+
+[[package]]
 name = "natord"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2719,6 +2725,7 @@ dependencies = [
  "env_logger",
  "ktx2",
  "log",
+ "nanorand",
  "puffin",
  "puffin_egui",
  "serde",

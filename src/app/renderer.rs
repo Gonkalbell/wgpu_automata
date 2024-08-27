@@ -1,176 +1,240 @@
-use crate::{
-    app,
-    shaders::automata::{self, res_camera, res_cur_tex, res_next_tex},
-};
-use eframe::{egui_wgpu::CallbackTrait, wgpu};
-use egui::Vec2;
-use puffin::profile_function;
+// Flocking boids example with gpu compute update pass
+// adapted from https://github.com/austinEng/webgpu-samples/blob/master/src/examples/computeBoids.ts
+
+use crate::app;
+use eframe::egui_wgpu::CallbackTrait;
+use nanorand::{Rng, WyRand};
+use std::{borrow::Cow, mem};
 use wgpu::util::DeviceExt;
 
-const TEXTURE_BGROUP_INDEX: u32 = automata::res_cur_tex::GROUP;
-const CAMERA_BGROUP_INDEX: u32 = automata::res_camera::GROUP;
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+// number of boid particles to simulate
 
-pub struct SceneRenderer {
-    camera_buf: wgpu::Buffer,
-    camera_bgroup: wgpu::BindGroup,
-    texture_size: [u32; 2],
-    texture_bgroups: [wgpu::BindGroup; 2],
-    textured_quad_pipeline: wgpu::RenderPipeline,
-    paint_pixel_pipeline: wgpu::ComputePipeline,
+const NUM_PARTICLES: u32 = 1500;
+
+// number of single-particle calculations (invocations) in each gpu work group
+
+const PARTICLES_PER_GROUP: u32 = 64;
+
+/// Example struct holds references to wgpu resources and frame persistent data
+pub struct Example {
+    particle_bind_groups: Vec<wgpu::BindGroup>,
+    particle_buffers: Vec<wgpu::Buffer>,
+    vertices_buffer: wgpu::Buffer,
+    compute_pipeline: wgpu::ComputePipeline,
+    render_pipeline: wgpu::RenderPipeline,
+    work_group_count: u32,
+    frame_num: usize,
 }
 
-impl SceneRenderer {
+impl Example {
+    /// constructs initial instance of Example struct
     pub fn init(
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
         color_format: wgpu::TextureFormat,
     ) -> Self {
-        let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera"),
-            contents: bytemuck::bytes_of(&automata::Camera {
-                origin: Vec2::ZERO.into(),
-                scale: Vec2::new(9. / 16., 1.).into(),
-            }),
+        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("compute.wgsl"))),
+        });
+        let draw_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("draw.wgsl"))),
+        });
+
+        // buffer for simulation parameters uniform
+
+        let sim_param_data = [
+            0.04f32, // deltaT
+            0.1,     // rule1Distance
+            0.025,   // rule2Distance
+            0.025,   // rule3Distance
+            0.02,    // rule1Scale
+            0.05,    // rule2Scale
+            0.005,   // rule3Scale
+        ]
+        .to_vec();
+        let sim_param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Simulation Parameter Buffer"),
+            contents: bytemuck::cast_slice(&sim_param_data),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bgroup_layout =
+        // create compute bind layout group and compute pipeline layout
+
+        let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("camera"),
-                entries: &[res_camera::LAYOUT],
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(
+                                (sim_param_data.len() * mem::size_of::<f32>()) as _,
+                            ),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new((NUM_PARTICLES * 16) as _),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new((NUM_PARTICLES * 16) as _),
+                        },
+                        count: None,
+                    },
+                ],
+                label: None,
             });
-        let camera_bgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera"),
-            layout: &camera_bgroup_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: res_camera::BINDING,
-                resource: camera_buf.as_entire_binding(),
-            }],
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("compute"),
+                bind_group_layouts: &[&compute_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // create render pipeline with empty bind group layout
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("render"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &draw_shader,
+                entry_point: "main_vs",
+                compilation_options: Default::default(),
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: 4 * 4,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: 2 * 4,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![2 => Float32x2],
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &draw_shader,
+                entry_point: "main_fs",
+                compilation_options: Default::default(),
+                targets: &[Some(color_format.into())],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
         });
 
-        let texture_size = [1, 1];
-        let texture_bgroups = create_texture_bgroups(device, texture_size);
+        // create compute pipeline
 
-        let module = automata::create_shader_module(device);
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("textured_quad pipeline"),
-            bind_group_layouts: &[&create_texture_bgroup_layout(device), &camera_bgroup_layout],
-            push_constant_ranges: &[],
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Compute pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "main",
+            compilation_options: Default::default(),
         });
-        let textured_quad_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("textured_quad"),
-                layout: Some(&pipeline_layout),
-                vertex: automata::vertex_state(&module, &automata::vs_textured_quad_entry()),
-                fragment: Some(automata::fragment_state(
-                    &module,
-                    &automata::fs_textured_quad_entry([Some(color_format.into())]),
-                )),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    front_face: wgpu::FrontFace::Cw,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+
+        // buffer for the three 2d triangle vertices of each instance
+
+        let vertex_buffer_data = [-0.01f32, -0.02, 0.01, -0.02, 0.00, 0.02];
+        let vertices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::bytes_of(&vertex_buffer_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // buffer for all particles data of type [(posx,posy,velx,vely),...]
+
+        let mut initial_particle_data = vec![0.0f32; (4 * NUM_PARTICLES) as usize];
+        let mut rng = WyRand::new_seed(42);
+        let mut unif = || rng.generate::<f32>() * 2f32 - 1f32; // Generate a num (-1, 1)
+        for particle_instance_chunk in initial_particle_data.chunks_mut(4) {
+            particle_instance_chunk[0] = unif(); // posx
+            particle_instance_chunk[1] = unif(); // posy
+            particle_instance_chunk[2] = unif() * 0.1; // velx
+            particle_instance_chunk[3] = unif() * 0.1; // vely
+        }
+
+        // creates two buffers of particle data each of size NUM_PARTICLES
+        // the two buffers alternate as dst and src for each frame
+
+        let mut particle_buffers = Vec::<wgpu::Buffer>::new();
+        let mut particle_bind_groups = Vec::<wgpu::BindGroup>::new();
+        for i in 0..2 {
+            particle_buffers.push(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("Particle Buffer {i}")),
+                    contents: bytemuck::cast_slice(&initial_particle_data),
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
                 }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            });
+            );
+        }
 
-        let paint_pixel_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("paint_pixel"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("textured_quad pipeline"),
-                        bind_group_layouts: &[&create_texture_bgroup_layout(device)],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &module,
-                entry_point: "paint_pixel",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            });
+        // create two bind groups, one for each buffer as the src
+        // where the alternate buffer is used as the dst
 
-        Self {
-            camera_buf,
-            camera_bgroup,
-            texture_size,
-            texture_bgroups,
-            textured_quad_pipeline,
-            paint_pixel_pipeline,
+        for i in 0..2 {
+            particle_bind_groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: sim_param_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: particle_buffers[i].as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: particle_buffers[(i + 1) % 2].as_entire_binding(), // bind to opposite buffer
+                    },
+                ],
+                label: None,
+            }));
+        }
+
+        // calculates number of work groups from PARTICLES_PER_GROUP constant
+        let work_group_count =
+            ((NUM_PARTICLES as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
+
+        // returns Example struct and No encoder commands
+
+        Example {
+            particle_bind_groups,
+            particle_buffers,
+            vertices_buffer,
+            compute_pipeline,
+            render_pipeline,
+            work_group_count,
+            frame_num: 0,
         }
     }
-}
-
-fn create_texture_bgroup_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    let visibility = wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE;
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Cells"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                visibility,
-                ..res_cur_tex::LAYOUT
-            },
-            wgpu::BindGroupLayoutEntry {
-                visibility,
-                ..res_next_tex::LAYOUT
-            },
-        ],
-    })
-}
-
-fn create_texture_bgroups(device: &wgpu::Device, texture_size: [u32; 2]) -> [wgpu::BindGroup; 2] {
-    let [width, height] = texture_size;
-    let [texture_a, texture_b] = ["CellsA", "CellsB"].map(|label| {
-        device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R32Uint,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[wgpu::TextureFormat::R32Uint],
-            })
-            .create_view(&wgpu::TextureViewDescriptor {
-                label: Some(label),
-                ..Default::default()
-            })
-    });
-
-    let bind_group_layout = create_texture_bgroup_layout(device);
-    [
-        ("CellsA -> CellsB", &texture_a, &texture_b),
-        ("CellsB -> CellsA", &texture_b, &texture_a),
-    ]
-    .map(|(label, in_tex, out_tex)| {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(label),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: res_cur_tex::BINDING,
-                    resource: wgpu::BindingResource::TextureView(in_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: res_next_tex::BINDING,
-                    resource: wgpu::BindingResource::TextureView(out_tex),
-                },
-            ],
-        })
-    })
 }
 
 // TODO: While `eframe` does handle a lot of the boilerplate for me, it wasn't really meant for a situation where I am
@@ -192,37 +256,27 @@ impl CallbackTrait for RenderCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
-        egui_encoder: &mut wgpu::CommandEncoder,
+        command_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        if let Some(renderer) = callback_resources.get_mut::<SceneRenderer>() {
-            let rect = self.response.interact_rect;
-            let aspect_ratio = rect.aspect_ratio();
-
-            let camera_data = automata::Camera {
-                origin: (Vec2::new(1., -1.) * self.settings.pos / rect.size()).into(),
-                scale: (self.settings.zoom * Vec2::new(1., aspect_ratio)).into(),
-            };
-            queue.write_buffer(&renderer.camera_buf, 0, bytemuck::bytes_of(&camera_data));
-
-            if renderer.texture_size != self.settings.image_size {
-                renderer.texture_size = self.settings.image_size;
-                renderer.texture_bgroups = create_texture_bgroups(device, renderer.texture_size);
-            }
+        if let Some(renderer) = callback_resources.get_mut::<Example>() {
+            command_encoder.push_debug_group("compute boid movement");
             {
-                let mut cpass =
-                    egui_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                cpass.set_bind_group(0, &renderer.texture_bgroups[0], &[]);
-                cpass.set_pipeline(&renderer.paint_pixel_pipeline);
-                const WORKGROUP_SIZE: [u32; 2] = [8, 8];
-                let workgroups_x =
-                    (renderer.texture_size[0] + WORKGROUP_SIZE[0] - 1) / WORKGROUP_SIZE[0];
-                let workgroups_y =
-                    (renderer.texture_size[1] + WORKGROUP_SIZE[1] - 1) / WORKGROUP_SIZE[1];
-                cpass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                // compute pass
+                let mut cpass = command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: None,
+                });
+                cpass.set_pipeline(&renderer.compute_pipeline);
+                cpass.set_bind_group(
+                    0,
+                    &renderer.particle_bind_groups[renderer.frame_num % 2],
+                    &[],
+                );
+                cpass.dispatch_workgroups(renderer.work_group_count, 1, 1);
             }
-            let [tex_a, tex_b] = &mut renderer.texture_bgroups;
-            std::mem::swap(tex_a, tex_b);
+            command_encoder.pop_debug_group();
+            renderer.frame_num += 1;
         }
         vec![]
     }
@@ -230,19 +284,19 @@ impl CallbackTrait for RenderCallback {
     fn paint<'a>(
         &'a self,
         _info: egui::PaintCallbackInfo,
-        render_pass: &mut eframe::wgpu::RenderPass<'a>,
+        rpass: &mut eframe::wgpu::RenderPass<'a>,
         callback_resources: &'a eframe::egui_wgpu::CallbackResources,
     ) {
-        if let Some(renderer) = callback_resources.get::<SceneRenderer>() {
-            {
-                let this = &renderer;
-                profile_function!();
-
-                render_pass.set_bind_group(TEXTURE_BGROUP_INDEX, &this.texture_bgroups[0], &[]);
-                render_pass.set_bind_group(CAMERA_BGROUP_INDEX, &this.camera_bgroup, &[]);
-                render_pass.set_pipeline(&this.textured_quad_pipeline);
-                render_pass.draw(0..4, 0..1);
-            };
+        if let Some(renderer) = callback_resources.get::<Example>() {
+            rpass.set_pipeline(&renderer.render_pipeline);
+            // render dst particles
+            rpass.set_vertex_buffer(
+                0,
+                renderer.particle_buffers[(renderer.frame_num + 1) % 2].slice(..),
+            );
+            // the three instance-local vertices
+            rpass.set_vertex_buffer(1, renderer.vertices_buffer.slice(..));
+            rpass.draw(0..3, 0..NUM_PARTICLES);
         }
     }
 }
