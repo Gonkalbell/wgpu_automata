@@ -1,1 +1,2 @@
-pub mod automata;
+#[allow(warnings)]
+pub mod boids;

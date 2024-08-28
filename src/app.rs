@@ -72,7 +72,7 @@ impl eframe::App for RendererApp {
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         profile_function!();
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -138,8 +138,9 @@ impl eframe::App for RendererApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::Frame::canvas(ui.style()).show(ui, |ui| {
+                let min_size = ui.available_size().min_elem();
                 let (rect, response) =
-                    ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+                    ui.allocate_exact_size(Vec2::splat(min_size), egui::Sense::click_and_drag());
 
                 if response.dragged_by(egui::PointerButton::Secondary) {
                     self.settings.pos += response.drag_delta();
@@ -151,10 +152,7 @@ impl eframe::App for RendererApp {
                 ui.painter()
                     .add(eframe::egui_wgpu::Callback::new_paint_callback(
                         rect,
-                        RenderCallback {
-                            response,
-                            settings: self.settings.clone(),
-                        },
+                        RenderCallback,
                     ));
             });
         });

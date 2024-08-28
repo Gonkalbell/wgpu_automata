@@ -1,7 +1,7 @@
 use wgsl_to_wgpu::{create_shader_module_embedded, MatrixVectorTypes, WriteOptions};
 
 fn main() {
-    let name = "automata";
+    let name = "boids";
     println!("cargo:rerun-if-changed=src/shaders/{name}.wgsl");
     let wgsl_source = std::fs::read_to_string(format!("src/shaders/{name}.wgsl")).unwrap();
 

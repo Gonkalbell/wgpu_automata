@@ -1,10 +1,9 @@
 // Flocking boids example with gpu compute update pass
 // adapted from https://github.com/austinEng/webgpu-samples/blob/master/src/examples/computeBoids.ts
 
-use crate::app;
+use crate::shaders::*;
 use eframe::egui_wgpu::CallbackTrait;
 use nanorand::{Rng, WyRand};
-use std::{borrow::Cow, mem};
 use wgpu::util::DeviceExt;
 
 // number of boid particles to simulate
@@ -19,7 +18,6 @@ const PARTICLES_PER_GROUP: u32 = 64;
 pub struct Example {
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
-    vertices_buffer: wgpu::Buffer,
     compute_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::RenderPipeline,
     work_group_count: u32,
@@ -28,34 +26,23 @@ pub struct Example {
 
 impl Example {
     /// constructs initial instance of Example struct
-    pub fn init(
-        device: &wgpu::Device,
-        color_format: wgpu::TextureFormat,
-    ) -> Self {
-        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("compute.wgsl"))),
-        });
-        let draw_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("draw.wgsl"))),
-        });
+    pub fn init(device: &wgpu::Device, color_format: wgpu::TextureFormat) -> Self {
+        let shader = boids::create_shader_module(device);
 
         // buffer for simulation parameters uniform
 
-        let sim_param_data = [
-            0.04f32, // deltaT
-            0.1,     // rule1Distance
-            0.025,   // rule2Distance
-            0.025,   // rule3Distance
-            0.02,    // rule1Scale
-            0.05,    // rule2Scale
-            0.005,   // rule3Scale
-        ]
-        .to_vec();
+        let sim_param_data = boids::SimParams {
+            deltaT: 0.04f32,
+            rule1Distance: 0.1,
+            rule2Distance: 0.025,
+            rule3Distance: 0.025,
+            rule1Scale: 0.02,
+            rule2Scale: 0.05,
+            rule3Scale: 0.005,
+        };
         let sim_param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Simulation Parameter Buffer"),
-            contents: bytemuck::cast_slice(&sim_param_data),
+            contents: bytemuck::bytes_of(&sim_param_data),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -65,36 +52,16 @@ impl Example {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
-                        binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new(
-                                (sim_param_data.len() * mem::size_of::<f32>()) as _,
-                            ),
-                        },
-                        count: None,
+                        ..boids::params::LAYOUT
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new((NUM_PARTICLES * 16) as _),
-                        },
-                        count: None,
+                        ..boids::particlesSrc::LAYOUT
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new((NUM_PARTICLES * 16) as _),
-                        },
-                        count: None,
+                        ..boids::particlesDst::LAYOUT
                     },
                 ],
                 label: None,
@@ -118,29 +85,14 @@ impl Example {
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &draw_shader,
-                entry_point: "main_vs",
-                compilation_options: Default::default(),
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: 4 * 4,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
-                    },
-                    wgpu::VertexBufferLayout {
-                        array_stride: 2 * 4,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![2 => Float32x2],
-                    },
-                ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &draw_shader,
-                entry_point: "main_fs",
-                compilation_options: Default::default(),
-                targets: &[Some(color_format.into())],
-            }),
+            vertex: boids::vertex_state(
+                &shader,
+                &boids::main_vs_entry(wgpu::VertexStepMode::Instance),
+            ),
+            fragment: Some(boids::fragment_state(
+                &shader,
+                &boids::main_fs_entry([Some(color_format.into())]),
+            )),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
@@ -152,18 +104,9 @@ impl Example {
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute pipeline"),
             layout: Some(&compute_pipeline_layout),
-            module: &compute_shader,
-            entry_point: "main",
+            module: &shader,
+            entry_point: boids::ENTRY_MAIN,
             compilation_options: Default::default(),
-        });
-
-        // buffer for the three 2d triangle vertices of each instance
-
-        let vertex_buffer_data = [-0.01f32, -0.02, 0.01, -0.02, 0.00, 0.02];
-        let vertices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::bytes_of(&vertex_buffer_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         // buffer for all particles data of type [(posx,posy,velx,vely),...]
@@ -202,18 +145,13 @@ impl Example {
             particle_bind_groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &compute_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: sim_param_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: particle_buffers[i].as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: particle_buffers[(i + 1) % 2].as_entire_binding(), // bind to opposite buffer
-                    },
+                    boids::params::bind_group_entry(sim_param_buffer.as_entire_buffer_binding()),
+                    boids::particlesSrc::bind_group_entry(
+                        particle_buffers[i].as_entire_buffer_binding(),
+                    ),
+                    boids::particlesDst::bind_group_entry(
+                        particle_buffers[(i + 1) % 2].as_entire_buffer_binding(),
+                    ),
                 ],
                 label: None,
             }));
@@ -228,7 +166,6 @@ impl Example {
         Example {
             particle_bind_groups,
             particle_buffers,
-            vertices_buffer,
             compute_pipeline,
             render_pipeline,
             work_group_count,
@@ -245,16 +182,13 @@ impl Example {
 //     `wgpu::RenderPass`s that all target the `wgpu::SurfaceTexture`
 //   - `CustomCallback` must be recreated every frame. In fact `new_paint_callback` allocates a new Arc every frame.
 // If any of these become a deal breaker, I may consider just using `winit` and `egui` directly. .
-pub struct RenderCallback {
-    pub response: egui::Response,
-    pub settings: app::RenderSettings,
-}
+pub struct RenderCallback;
 
 impl CallbackTrait for RenderCallback {
     fn prepare(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
         _screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
         command_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
@@ -295,7 +229,6 @@ impl CallbackTrait for RenderCallback {
                 renderer.particle_buffers[(renderer.frame_num + 1) % 2].slice(..),
             );
             // the three instance-local vertices
-            rpass.set_vertex_buffer(1, renderer.vertices_buffer.slice(..));
             rpass.draw(0..3, 0..NUM_PARTICLES);
         }
     }
