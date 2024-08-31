@@ -1,12 +1,12 @@
 //! Since I mostly want to do my own rendering, very little actually happens in the top level `App` struct. Instead,
 //! most of the rendering logic actually happens in `renderer.rs`
 
-mod renderer;
+mod particles;
 
 use egui::{CollapsingHeader, Vec2};
 use puffin::profile_function;
 
-use renderer::{Example, RenderCallback};
+use particles::{ParticleSystem, RenderCallback};
 use web_time::Duration;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -51,7 +51,7 @@ impl RendererApp {
             .renderer
             .write()
             .callback_resources
-            .insert(Example::init(
+            .insert(ParticleSystem::init(
                 &wgpu_render_state.device,
                 wgpu_render_state.target_format,
             ));

@@ -7,13 +7,13 @@ struct Particle {
 };
 
 struct SimParams {
-    deltaT: f32,
-    rule1Distance: f32,
-    rule2Distance: f32,
-    rule3Distance: f32,
-    rule1Scale: f32,
-    rule2Scale: f32,
-    rule3Scale: f32,
+    delta_time: f32,
+    separation_distance: f32,
+    alignment_distance: f32,
+    cohesion_distance: f32,
+    separation_scale: f32,
+    alignment_scale: f32,
+    cohesion_scale: f32,
 };
 
 struct VertexOutput {
@@ -24,11 +24,11 @@ struct VertexOutput {
 var<private> VERTEX_POSITIONS: array<vec2f, 3> = array(vec2f(-0.01, -0.02), vec2f(0.01, -0.02), vec2f(0.00, 0.02));
 
 @vertex
-fn main_vs(
+fn boids_vs(
     particle: Particle,
     @builtin(vertex_index) vertex_index: u32,
 ) -> VertexOutput {
-    let position = VERTEX_POSITIONS[vertex_index];
+    let position = 0.2 * VERTEX_POSITIONS[vertex_index];
     let angle = -atan2(particle.vel.x, particle.vel.y);
     let pos = vec2<f32>(
         position.x * cos(angle) - position.y * sin(angle),
@@ -38,99 +38,81 @@ fn main_vs(
     var output: VertexOutput;
     output.position = vec4(pos + particle.pos, 0., 1.);
     output.color = vec4f(
-        saturate(cos(angle)),
-        saturate(cos(angle - (TAU / 3.))),
-        saturate(cos(angle - (2. * TAU / 3.))),
+        saturate(2. * cos(angle)),
+        saturate(2. * cos(angle - (TAU / 3.))),
+        saturate(2. * cos(angle - (2. * TAU / 3.))),
         1.
     );
     return output;
 }
 
 @fragment
-fn main_fs(@location(0) color: vec4f) -> @location(0) vec4f {
+fn boids_fs(@location(0) color: vec4f) -> @location(0) vec4f {
     return color;
 }
 
-
 @group(0) @binding(0) var<uniform> params : SimParams;
-@group(0) @binding(1) var<storage, read> particlesSrc : array<Particle>;
-@group(0) @binding(2) var<storage, read_write> particlesDst : array<Particle>;
+@group(0) @binding(1) var<storage, read> particles_src : array<Particle>;
+@group(0) @binding(2) var<storage, read_write> particles_dst : array<Particle>;
 
 // https://github.com/austinEng/Project6-Vulkan-Flocking/blob/master/data/shaders/computeparticles/particle.comp
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let total = arrayLength(&particlesSrc);
+fn boids_cs(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    let total = arrayLength(&particles_src);
     let index = global_invocation_id.x;
     if index >= total {
         return;
     }
 
-    var vPos: vec2<f32> = particlesSrc[index].pos;
-    var vVel: vec2<f32> = particlesSrc[index].vel;
+    let me = particles_src[index];
 
-    var cMass: vec2<f32> = vec2<f32>(0.0, 0.0);
-    var cVel: vec2<f32> = vec2<f32>(0.0, 0.0);
-    var colVel: vec2<f32> = vec2<f32>(0.0, 0.0);
-    var cMassCount: i32 = 0;
-    var cVelCount: i32 = 0;
+    var separation_vel = vec2f(0.);
+    var alignment_vel = vec2f(0.);
+    var alignment_count: u32 = 0;
+    var center_of_mass = vec2f(0.);
+    var cohesion_count: u32 = 0;
 
-    var i: u32 = 0u;
-    loop {
-        if i >= total {
-            break;
-        }
+    for (var i: u32 = 0u; i < total; i++) {
         if i == index {
             continue;
         }
 
-        let pos = particlesSrc[i].pos;
-        let vel = particlesSrc[i].vel;
+        let other = particles_src[i];
 
-        if distance(pos, vPos) < params.rule1Distance {
-            cMass += pos;
-            cMassCount += 1;
+        if distance(me.pos, other.pos) < params.separation_distance {
+            separation_vel += me.pos - other.pos;
         }
-        if distance(pos, vPos) < params.rule2Distance {
-            colVel -= pos - vPos;
+        if distance(me.pos, other.pos) < params.alignment_distance {
+            alignment_vel += other.vel;
+            alignment_count += 1u;
         }
-        if distance(pos, vPos) < params.rule3Distance {
-            cVel += vel;
-            cVelCount += 1;
-        }
-
-        continuing {
-            i = i + 1u;
+        if distance(me.pos, other.pos) < params.cohesion_distance {
+            center_of_mass += other.pos;
+            cohesion_count += 1u;
         }
     }
-    if cMassCount > 0 {
-        cMass = cMass * (1.0 / f32(cMassCount)) - vPos;
+    if alignment_count > 0 {
+        alignment_vel /= f32(alignment_count);
     }
-    if cVelCount > 0 {
-        cVel *= 1.0 / f32(cVelCount);
+    var cohesion_vel = vec2f(0.);
+    if cohesion_count > 0 {
+        cohesion_vel = (center_of_mass / f32(cohesion_count)) - me.pos;
     }
 
-    vVel = vVel + (cMass * params.rule1Scale) + (colVel * params.rule2Scale) + (cVel * params.rule3Scale);
+    var new_particle: Particle = me;
+    new_particle.vel += separation_vel * params.separation_scale;
+    new_particle.vel += alignment_vel * params.alignment_scale;
+    new_particle.vel += cohesion_vel * params.cohesion_scale;
 
     // clamp velocity for a more pleasing simulation
-    vVel = normalize(vVel) * clamp(length(vVel), 0.0, 0.1);
+    new_particle.vel = normalize(new_particle.vel) * clamp(length(new_particle.vel), 0.0, 0.1);
 
     // kinematic update
-    vPos += vVel * params.deltaT;
+    new_particle.pos += new_particle.vel * params.delta_time;
 
     // Wrap around boundary
-    if vPos.x < -1.0 {
-        vPos.x = 1.0;
-    }
-    if vPos.x > 1.0 {
-        vPos.x = -1.0;
-    }
-    if vPos.y < -1.0 {
-        vPos.y = 1.0;
-    }
-    if vPos.y > 1.0 {
-        vPos.y = -1.0;
-    }
+    new_particle.pos = 2. * fract(0.5 + 0.5 * new_particle.pos) - 1.;
 
     // Write back
-    particlesDst[index] = Particle(vPos, vVel);
+    particles_dst[index] = new_particle;
 }

@@ -19,45 +19,45 @@ const _: () = assert!(
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable)]
 pub struct SimParams {
-    pub deltaT: f32,
-    pub rule1Distance: f32,
-    pub rule2Distance: f32,
-    pub rule3Distance: f32,
-    pub rule1Scale: f32,
-    pub rule2Scale: f32,
-    pub rule3Scale: f32,
+    pub delta_time: f32,
+    pub separation_distance: f32,
+    pub alignment_distance: f32,
+    pub cohesion_distance: f32,
+    pub separation_scale: f32,
+    pub alignment_scale: f32,
+    pub cohesion_scale: f32,
 }
 const _: () = assert!(
     std::mem::size_of::<SimParams>() == 28,
     "size of SimParams does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, deltaT) == 0,
-    "offset of SimParams.deltaT does not match WGSL"
+    std::mem::offset_of!(SimParams, delta_time) == 0,
+    "offset of SimParams.delta_time does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule1Distance) == 4,
-    "offset of SimParams.rule1Distance does not match WGSL"
+    std::mem::offset_of!(SimParams, separation_distance) == 4,
+    "offset of SimParams.separation_distance does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule2Distance) == 8,
-    "offset of SimParams.rule2Distance does not match WGSL"
+    std::mem::offset_of!(SimParams, alignment_distance) == 8,
+    "offset of SimParams.alignment_distance does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule3Distance) == 12,
-    "offset of SimParams.rule3Distance does not match WGSL"
+    std::mem::offset_of!(SimParams, cohesion_distance) == 12,
+    "offset of SimParams.cohesion_distance does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule1Scale) == 16,
-    "offset of SimParams.rule1Scale does not match WGSL"
+    std::mem::offset_of!(SimParams, separation_scale) == 16,
+    "offset of SimParams.separation_scale does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule2Scale) == 20,
-    "offset of SimParams.rule2Scale does not match WGSL"
+    std::mem::offset_of!(SimParams, alignment_scale) == 20,
+    "offset of SimParams.alignment_scale does not match WGSL"
 );
 const _: () = assert!(
-    std::mem::offset_of!(SimParams, rule3Scale) == 24,
-    "offset of SimParams.rule3Scale does not match WGSL"
+    std::mem::offset_of!(SimParams, cohesion_scale) == 24,
+    "offset of SimParams.cohesion_scale does not match WGSL"
 );
 pub const PI: f32 = 3.1415927f32;
 pub const TAU: f32 = 6.2831855f32;
@@ -82,7 +82,7 @@ pub mod params {
         }
     }
 }
-pub mod particlesSrc {
+pub mod particles_src {
     pub const GROUP: u32 = 0u32;
     pub const BINDING: u32 = 1u32;
     pub const LAYOUT: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
@@ -103,7 +103,7 @@ pub mod particlesSrc {
         }
     }
 }
-pub mod particlesDst {
+pub mod particles_dst {
     pub const GROUP: u32 = 0u32;
     pub const BINDING: u32 = 2u32;
     pub const LAYOUT: wgpu::BindGroupLayoutEntry = wgpu::BindGroupLayoutEntry {
@@ -147,10 +147,10 @@ impl Particle {
         }
     }
 }
-pub const MAIN_WORKGROUP_SIZE: [u32; 3] = [64, 1, 1];
-pub const ENTRY_MAIN_VS: &str = "main_vs";
-pub const ENTRY_MAIN_FS: &str = "main_fs";
-pub const ENTRY_MAIN: &str = "main";
+pub const BOIDS_CS_WORKGROUP_SIZE: [u32; 3] = [64, 1, 1];
+pub const ENTRY_BOIDS_VS: &str = "boids_vs";
+pub const ENTRY_BOIDS_FS: &str = "boids_fs";
+pub const ENTRY_BOIDS_CS: &str = "boids_cs";
 #[derive(Debug)]
 pub struct VertexEntry<const N: usize> {
     pub entry_point: &'static str,
@@ -171,9 +171,9 @@ pub fn vertex_state<'a, const N: usize>(
         },
     }
 }
-pub fn main_vs_entry(particle: wgpu::VertexStepMode) -> VertexEntry<1> {
+pub fn boids_vs_entry(particle: wgpu::VertexStepMode) -> VertexEntry<1> {
     VertexEntry {
-        entry_point: ENTRY_MAIN_VS,
+        entry_point: ENTRY_BOIDS_VS,
         buffers: [Particle::vertex_buffer_layout(particle)],
         constants: Default::default(),
     }
@@ -198,15 +198,15 @@ pub fn fragment_state<'a, const N: usize>(
         },
     }
 }
-pub fn main_fs_entry(targets: [Option<wgpu::ColorTargetState>; 1]) -> FragmentEntry<1> {
+pub fn boids_fs_entry(targets: [Option<wgpu::ColorTargetState>; 1]) -> FragmentEntry<1> {
     FragmentEntry {
-        entry_point: ENTRY_MAIN_FS,
+        entry_point: ENTRY_BOIDS_FS,
         targets,
         constants: Default::default(),
     }
 }
 pub fn create_shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
-    let source = std :: borrow :: Cow :: Borrowed ("const PI: f32 = 3.14159265358979323846264338327950288;\nconst TAU: f32 = 6.28318530717958647692528676655900577;\n\nstruct Particle {\n    @location(0) pos: vec2<f32>,\n    @location(1) vel: vec2<f32>,\n};\n\nstruct SimParams {\n    deltaT: f32,\n    rule1Distance: f32,\n    rule2Distance: f32,\n    rule3Distance: f32,\n    rule1Scale: f32,\n    rule2Scale: f32,\n    rule3Scale: f32,\n};\n\nstruct VertexOutput {\n  @builtin(position) position: vec4f,\n  @location(0) color: vec4f,\n}\n\nvar<private> VERTEX_POSITIONS: array<vec2f, 3> = array(vec2f(-0.01, -0.02), vec2f(0.01, -0.02), vec2f(0.00, 0.02));\n\n@vertex\nfn main_vs(\n    particle: Particle,\n    @builtin(vertex_index) vertex_index: u32,\n) -> VertexOutput {\n    let position = VERTEX_POSITIONS[vertex_index];\n    let angle = -atan2(particle.vel.x, particle.vel.y);\n    let pos = vec2<f32>(\n        position.x * cos(angle) - position.y * sin(angle),\n        position.x * sin(angle) + position.y * cos(angle)\n    );\n\n    var output: VertexOutput;\n    output.position = vec4(pos + particle.pos, 0., 1.);\n    output.color = vec4f(\n        saturate(cos(angle)),\n        saturate(cos(angle - (TAU / 3.))),\n        saturate(cos(angle - (2. * TAU / 3.))),\n        1.\n    );\n    return output;\n}\n\n@fragment\nfn main_fs(@location(0) color: vec4f) -> @location(0) vec4f {\n    return color;\n}\n\n\n@group(0) @binding(0) var<uniform> params : SimParams;\n@group(0) @binding(1) var<storage, read> particlesSrc : array<Particle>;\n@group(0) @binding(2) var<storage, read_write> particlesDst : array<Particle>;\n\n// https://github.com/austinEng/Project6-Vulkan-Flocking/blob/master/data/shaders/computeparticles/particle.comp\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {\n    let total = arrayLength(&particlesSrc);\n    let index = global_invocation_id.x;\n    if index >= total {\n        return;\n    }\n\n    var vPos: vec2<f32> = particlesSrc[index].pos;\n    var vVel: vec2<f32> = particlesSrc[index].vel;\n\n    var cMass: vec2<f32> = vec2<f32>(0.0, 0.0);\n    var cVel: vec2<f32> = vec2<f32>(0.0, 0.0);\n    var colVel: vec2<f32> = vec2<f32>(0.0, 0.0);\n    var cMassCount: i32 = 0;\n    var cVelCount: i32 = 0;\n\n    var i: u32 = 0u;\n    loop {\n        if i >= total {\n            break;\n        }\n        if i == index {\n            continue;\n        }\n\n        let pos = particlesSrc[i].pos;\n        let vel = particlesSrc[i].vel;\n\n        if distance(pos, vPos) < params.rule1Distance {\n            cMass += pos;\n            cMassCount += 1;\n        }\n        if distance(pos, vPos) < params.rule2Distance {\n            colVel -= pos - vPos;\n        }\n        if distance(pos, vPos) < params.rule3Distance {\n            cVel += vel;\n            cVelCount += 1;\n        }\n\n        continuing {\n            i = i + 1u;\n        }\n    }\n    if cMassCount > 0 {\n        cMass = cMass * (1.0 / f32(cMassCount)) - vPos;\n    }\n    if cVelCount > 0 {\n        cVel *= 1.0 / f32(cVelCount);\n    }\n\n    vVel = vVel + (cMass * params.rule1Scale) + (colVel * params.rule2Scale) + (cVel * params.rule3Scale);\n\n    // clamp velocity for a more pleasing simulation\n    vVel = normalize(vVel) * clamp(length(vVel), 0.0, 0.1);\n\n    // kinematic update\n    vPos += vVel * params.deltaT;\n\n    // Wrap around boundary\n    if vPos.x < -1.0 {\n        vPos.x = 1.0;\n    }\n    if vPos.x > 1.0 {\n        vPos.x = -1.0;\n    }\n    if vPos.y < -1.0 {\n        vPos.y = 1.0;\n    }\n    if vPos.y > 1.0 {\n        vPos.y = -1.0;\n    }\n\n    // Write back\n    particlesDst[index] = Particle(vPos, vVel);\n}\n") ;
+    let source = std :: borrow :: Cow :: Borrowed ("const PI: f32 = 3.14159265358979323846264338327950288;\nconst TAU: f32 = 6.28318530717958647692528676655900577;\n\nstruct Particle {\n    @location(0) pos: vec2<f32>,\n    @location(1) vel: vec2<f32>,\n};\n\nstruct SimParams {\n    delta_time: f32,\n    separation_distance: f32,\n    alignment_distance: f32,\n    cohesion_distance: f32,\n    separation_scale: f32,\n    alignment_scale: f32,\n    cohesion_scale: f32,\n};\n\nstruct VertexOutput {\n  @builtin(position) position: vec4f,\n  @location(0) color: vec4f,\n}\n\nvar<private> VERTEX_POSITIONS: array<vec2f, 3> = array(vec2f(-0.01, -0.02), vec2f(0.01, -0.02), vec2f(0.00, 0.02));\n\n@vertex\nfn boids_vs(\n    particle: Particle,\n    @builtin(vertex_index) vertex_index: u32,\n) -> VertexOutput {\n    let position = 0.2 * VERTEX_POSITIONS[vertex_index];\n    let angle = -atan2(particle.vel.x, particle.vel.y);\n    let pos = vec2<f32>(\n        position.x * cos(angle) - position.y * sin(angle),\n        position.x * sin(angle) + position.y * cos(angle)\n    );\n\n    var output: VertexOutput;\n    output.position = vec4(pos + particle.pos, 0., 1.);\n    output.color = vec4f(\n        saturate(2. * cos(angle)),\n        saturate(2. * cos(angle - (TAU / 3.))),\n        saturate(2. * cos(angle - (2. * TAU / 3.))),\n        1.\n    );\n    return output;\n}\n\n@fragment\nfn boids_fs(@location(0) color: vec4f) -> @location(0) vec4f {\n    return color;\n}\n\n@group(0) @binding(0) var<uniform> params : SimParams;\n@group(0) @binding(1) var<storage, read> particles_src : array<Particle>;\n@group(0) @binding(2) var<storage, read_write> particles_dst : array<Particle>;\n\n// https://github.com/austinEng/Project6-Vulkan-Flocking/blob/master/data/shaders/computeparticles/particle.comp\n@compute @workgroup_size(64)\nfn boids_cs(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {\n    let total = arrayLength(&particles_src);\n    let index = global_invocation_id.x;\n    if index >= total {\n        return;\n    }\n\n    let me = particles_src[index];\n\n    var separation_vel = vec2f(0.);\n    var alignment_vel = vec2f(0.);\n    var alignment_count: u32 = 0;\n    var center_of_mass = vec2f(0.);\n    var cohesion_count: u32 = 0;\n\n    for (var i: u32 = 0u; i < total; i++) {\n        if i == index {\n            continue;\n        }\n\n        let other = particles_src[i];\n\n        if distance(me.pos, other.pos) < params.separation_distance {\n            separation_vel += me.pos - other.pos;\n        }\n        if distance(me.pos, other.pos) < params.alignment_distance {\n            alignment_vel += other.vel;\n            alignment_count += 1u;\n        }\n        if distance(me.pos, other.pos) < params.cohesion_distance {\n            center_of_mass += other.pos;\n            cohesion_count += 1u;\n        }\n    }\n    if alignment_count > 0 {\n        alignment_vel /= f32(alignment_count);\n    }\n    var cohesion_vel = vec2f(0.);\n    if cohesion_count > 0 {\n        cohesion_vel = (center_of_mass / f32(cohesion_count)) - me.pos;\n    }\n\n    var new_particle: Particle = me;\n    new_particle.vel += separation_vel * params.separation_scale;\n    new_particle.vel += alignment_vel * params.alignment_scale;\n    new_particle.vel += cohesion_vel * params.cohesion_scale;\n\n    // clamp velocity for a more pleasing simulation\n    new_particle.vel = normalize(new_particle.vel) * clamp(length(new_particle.vel), 0.0, 0.1);\n\n    // kinematic update\n    new_particle.pos += new_particle.vel * params.delta_time;\n\n    // Wrap around boundary\n    new_particle.pos = 2. * fract(0.5 + 0.5 * new_particle.pos) - 1.;\n\n    // Write back\n    particles_dst[index] = new_particle;\n}\n") ;
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(source),

@@ -8,23 +8,22 @@ use wgpu::util::DeviceExt;
 
 // number of boid particles to simulate
 
-const NUM_PARTICLES: u32 = 1500;
+const NUM_PARTICLES: u32 = 12000;
 
 // number of single-particle calculations (invocations) in each gpu work group
 
 const PARTICLES_PER_GROUP: u32 = 64;
 
-/// Example struct holds references to wgpu resources and frame persistent data
-pub struct Example {
+/// Persistent WGPU data for particle rendering and simulation
+pub struct ParticleSystem {
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
     compute_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::RenderPipeline,
-    work_group_count: u32,
     frame_num: usize,
 }
 
-impl Example {
+impl ParticleSystem {
     /// constructs initial instance of Example struct
     pub fn init(device: &wgpu::Device, color_format: wgpu::TextureFormat) -> Self {
         let shader = boids::create_shader_module(device);
@@ -32,13 +31,13 @@ impl Example {
         // buffer for simulation parameters uniform
 
         let sim_param_data = boids::SimParams {
-            deltaT: 0.04f32,
-            rule1Distance: 0.1,
-            rule2Distance: 0.025,
-            rule3Distance: 0.025,
-            rule1Scale: 0.02,
-            rule2Scale: 0.05,
-            rule3Scale: 0.005,
+            delta_time: 0.04f32,
+            separation_distance: 0.025,
+            separation_scale: 0.05,
+            alignment_distance: 0.025,
+            alignment_scale: 0.005,
+            cohesion_distance: 0.1,
+            cohesion_scale: 0.02,
         };
         let sim_param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Simulation Parameter Buffer"),
@@ -57,11 +56,11 @@ impl Example {
                     },
                     wgpu::BindGroupLayoutEntry {
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ..boids::particlesSrc::LAYOUT
+                        ..boids::particles_src::LAYOUT
                     },
                     wgpu::BindGroupLayoutEntry {
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ..boids::particlesDst::LAYOUT
+                        ..boids::particles_dst::LAYOUT
                     },
                 ],
                 label: None,
@@ -87,11 +86,11 @@ impl Example {
             layout: Some(&render_pipeline_layout),
             vertex: boids::vertex_state(
                 &shader,
-                &boids::main_vs_entry(wgpu::VertexStepMode::Instance),
+                &boids::boids_vs_entry(wgpu::VertexStepMode::Instance),
             ),
             fragment: Some(boids::fragment_state(
                 &shader,
-                &boids::main_fs_entry([Some(color_format.into())]),
+                &boids::boids_fs_entry([Some(color_format.into())]),
             )),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -105,21 +104,20 @@ impl Example {
             label: Some("Compute pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &shader,
-            entry_point: boids::ENTRY_MAIN,
+            entry_point: boids::ENTRY_BOIDS_CS,
             compilation_options: Default::default(),
         });
 
-        // buffer for all particles data of type [(posx,posy,velx,vely),...]
+        // buffer for all particles
 
-        let mut initial_particle_data = vec![0.0f32; (4 * NUM_PARTICLES) as usize];
         let mut rng = WyRand::new_seed(42);
         let mut unif = || rng.generate::<f32>() * 2f32 - 1f32; // Generate a num (-1, 1)
-        for particle_instance_chunk in initial_particle_data.chunks_mut(4) {
-            particle_instance_chunk[0] = unif(); // posx
-            particle_instance_chunk[1] = unif(); // posy
-            particle_instance_chunk[2] = unif() * 0.1; // velx
-            particle_instance_chunk[3] = unif() * 0.1; // vely
-        }
+        let initial_particle_data: Vec<_> = (0..NUM_PARTICLES)
+            .map(|_| boids::Particle {
+                pos: [unif(), unif()],
+                vel: [unif(), unif()],
+            })
+            .collect();
 
         // creates two buffers of particle data each of size NUM_PARTICLES
         // the two buffers alternate as dst and src for each frame
@@ -146,10 +144,10 @@ impl Example {
                 layout: &compute_bind_group_layout,
                 entries: &[
                     boids::params::bind_group_entry(sim_param_buffer.as_entire_buffer_binding()),
-                    boids::particlesSrc::bind_group_entry(
+                    boids::particles_src::bind_group_entry(
                         particle_buffers[i].as_entire_buffer_binding(),
                     ),
-                    boids::particlesDst::bind_group_entry(
+                    boids::particles_dst::bind_group_entry(
                         particle_buffers[(i + 1) % 2].as_entire_buffer_binding(),
                     ),
                 ],
@@ -157,18 +155,13 @@ impl Example {
             }));
         }
 
-        // calculates number of work groups from PARTICLES_PER_GROUP constant
-        let work_group_count =
-            ((NUM_PARTICLES as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
-
         // returns Example struct and No encoder commands
 
-        Example {
+        ParticleSystem {
             particle_bind_groups,
             particle_buffers,
             compute_pipeline,
             render_pipeline,
-            work_group_count,
             frame_num: 0,
         }
     }
@@ -193,7 +186,7 @@ impl CallbackTrait for RenderCallback {
         command_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        if let Some(renderer) = callback_resources.get_mut::<Example>() {
+        if let Some(renderer) = callback_resources.get_mut::<ParticleSystem>() {
             command_encoder.push_debug_group("compute boid movement");
             {
                 // compute pass
@@ -207,7 +200,10 @@ impl CallbackTrait for RenderCallback {
                     &renderer.particle_bind_groups[renderer.frame_num % 2],
                     &[],
                 );
-                cpass.dispatch_workgroups(renderer.work_group_count, 1, 1);
+                // calculates number of work groups from PARTICLES_PER_GROUP constant
+                let work_group_count =
+                    ((NUM_PARTICLES as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
+                cpass.dispatch_workgroups(work_group_count, 1, 1);
             }
             command_encoder.pop_debug_group();
             renderer.frame_num += 1;
@@ -221,7 +217,7 @@ impl CallbackTrait for RenderCallback {
         rpass: &mut eframe::wgpu::RenderPass<'a>,
         callback_resources: &'a eframe::egui_wgpu::CallbackResources,
     ) {
-        if let Some(renderer) = callback_resources.get::<Example>() {
+        if let Some(renderer) = callback_resources.get::<ParticleSystem>() {
             rpass.set_pipeline(&renderer.render_pipeline);
             // render dst particles
             rpass.set_vertex_buffer(
