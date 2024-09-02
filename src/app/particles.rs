@@ -175,7 +175,10 @@ impl ParticleSystem {
 //     `wgpu::RenderPass`s that all target the `wgpu::SurfaceTexture`
 //   - `CustomCallback` must be recreated every frame. In fact `new_paint_callback` allocates a new Arc every frame.
 // If any of these become a deal breaker, I may consider just using `winit` and `egui` directly. .
-pub struct RenderCallback;
+pub struct RenderCallback {
+    pub sim_params: boids::SimParams,
+    pub num_sim_updates: u32,
+}
 
 impl CallbackTrait for RenderCallback {
     fn prepare(
@@ -195,18 +198,20 @@ impl CallbackTrait for RenderCallback {
                     timestamp_writes: None,
                 });
                 cpass.set_pipeline(&renderer.compute_pipeline);
-                cpass.set_bind_group(
-                    0,
-                    &renderer.particle_bind_groups[renderer.frame_num % 2],
-                    &[],
-                );
                 // calculates number of work groups from PARTICLES_PER_GROUP constant
                 let work_group_count =
                     ((NUM_PARTICLES as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
-                cpass.dispatch_workgroups(work_group_count, 1, 1);
+                for _ in 0..self.num_sim_updates {
+                    cpass.set_bind_group(
+                        0,
+                        &renderer.particle_bind_groups[renderer.frame_num % 2],
+                        &[],
+                    );
+                    cpass.dispatch_workgroups(work_group_count, 1, 1);
+                    renderer.frame_num += 1;
+                }
             }
             command_encoder.pop_debug_group();
-            renderer.frame_num += 1;
         }
         vec![]
     }

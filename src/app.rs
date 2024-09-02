@@ -3,40 +3,34 @@
 
 mod particles;
 
-use egui::{CollapsingHeader, Vec2};
+use egui::{Vec2, Widget};
 use puffin::profile_function;
 
+use crate::shaders::boids;
 use particles::{ParticleSystem, RenderCallback};
-use web_time::Duration;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct RenderSettings {
-    pub pos: Vec2,
-    pub zoom: f32,
-
-    pub image_size: [u32; 2],
-
-    pub playing: bool,
-    pub update_rate: Duration,
-}
-
-impl Default for RenderSettings {
-    fn default() -> Self {
-        RenderSettings {
-            pos: Vec2::default(),
-            zoom: 1.,
-            image_size: [100, 100],
-            playing: true,
-            update_rate: Duration::from_secs_f32(0.1),
-        }
-    }
+    pub sim_params: boids::SimParams,
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct RendererApp {
-    settings: RenderSettings,
+    is_playing: bool,
+    sim_delta_time: f32,
+    leftover_sim_frames: f32,
+}
+
+impl Default for RendererApp {
+    fn default() -> Self {
+        Self {
+            is_playing: true,
+            sim_delta_time: 0.04,
+            leftover_sim_frames: 0.,
+        }
+    }
 }
 
 impl RendererApp {
@@ -102,38 +96,15 @@ impl eframe::App for RendererApp {
             puffin_egui::show_viewport_if_enabled(ctx);
         });
 
+        let mut single_step = false;
         egui::SidePanel::left("Settings").show(ctx, |ui| {
-            CollapsingHeader::new("Camera")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("position:");
-                        ui.add(egui::DragValue::new(&mut self.settings.pos.x));
-                        ui.add(egui::DragValue::new(&mut self.settings.pos.y));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("zoom:");
-                        ui.add(egui::DragValue::new(&mut self.settings.zoom).speed(0.02));
-                    });
-                });
-            CollapsingHeader::new("Cells")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("size:");
-                        ui.add(egui::DragValue::new(&mut self.settings.image_size[0]));
-                        ui.add(egui::DragValue::new(&mut self.settings.image_size[1]));
-                    });
-                });
-            CollapsingHeader::new("Simulation")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.toggle_value(&mut self.settings.playing, "Play");
-                    if self.settings.playing {
-                        ui.ctx().request_repaint();
-                    }
-                });
+            ui.toggle_value(&mut self.is_playing, "Play");
+            if !self.is_playing {
+                single_step = ui.button("Step").clicked();
+            }
+            egui::Slider::new(&mut self.sim_delta_time, 0.004..=0.1)
+                .text("Simulation Delta Time (s)")
+                .ui(ui);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -142,19 +113,39 @@ impl eframe::App for RendererApp {
                 let (rect, response) =
                     ui.allocate_exact_size(Vec2::splat(min_size), egui::Sense::click_and_drag());
 
-                if response.dragged_by(egui::PointerButton::Secondary) {
-                    self.settings.pos += response.drag_delta();
-                }
-                ui.ctx().input(|input| {
-                    self.settings.zoom *= input.zoom_delta();
-                });
+                let num_sim_updates = if self.is_playing {
+                    let render_dt = ui.ctx().input(|input| input.stable_dt);
+                    let sim_frames = self.leftover_sim_frames + self.sim_delta_time / render_dt;
+                    self.leftover_sim_frames = sim_frames.fract();
+                    sim_frames as u32
+                } else if single_step {
+                    1
+                } else {
+                    0
+                };
+                let sim_params = boids::SimParams {
+                    delta_time: 0.04f32,
+                    separation_distance: 0.025,
+                    separation_scale: 0.05,
+                    alignment_distance: 0.025,
+                    alignment_scale: 0.005,
+                    cohesion_distance: 0.1,
+                    cohesion_scale: 0.02,
+                };
 
                 ui.painter()
                     .add(eframe::egui_wgpu::Callback::new_paint_callback(
                         rect,
-                        RenderCallback,
+                        RenderCallback {
+                            sim_params,
+                            num_sim_updates,
+                        },
                     ));
             });
         });
+
+        if self.is_playing {
+            ctx.request_repaint();
+        }
     }
 }

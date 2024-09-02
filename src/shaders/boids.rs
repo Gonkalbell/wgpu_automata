@@ -1,5 +1,14 @@
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    bytemuck :: Pod,
+    bytemuck :: Zeroable,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 pub struct Particle {
     pub pos: [f32; 2],
     pub vel: [f32; 2],
@@ -17,7 +26,16 @@ const _: () = assert!(
     "offset of Particle.vel does not match WGSL"
 );
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, bytemuck :: Pod, bytemuck :: Zeroable)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    bytemuck :: Pod,
+    bytemuck :: Zeroable,
+    serde :: Serialize,
+    serde :: Deserialize,
+)]
 pub struct SimParams {
     pub delta_time: f32,
     pub separation_distance: f32,

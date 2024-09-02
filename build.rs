@@ -11,6 +11,7 @@ fn main() {
         WriteOptions {
             derive_bytemuck_vertex: true,
             derive_bytemuck_host_shareable: true,
+            derive_serde: true,
             matrix_vector_types: MatrixVectorTypes::Rust,
             rustfmt: true,
             ..Default::default()
