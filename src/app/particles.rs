@@ -2,6 +2,7 @@
 // adapted from https://github.com/austinEng/webgpu-samples/blob/master/src/examples/computeBoids.ts
 
 use crate::shaders::*;
+use boids::SimParams;
 use eframe::egui_wgpu::CallbackTrait;
 use nanorand::{Rng, WyRand};
 use wgpu::util::DeviceExt;
@@ -16,6 +17,7 @@ const PARTICLES_PER_GROUP: u32 = 64;
 
 /// Persistent WGPU data for particle rendering and simulation
 pub struct ParticleSystem {
+    sim_param_buffer: wgpu::Buffer,
     particle_bind_groups: Vec<wgpu::BindGroup>,
     particle_buffers: Vec<wgpu::Buffer>,
     compute_pipeline: wgpu::ComputePipeline,
@@ -30,19 +32,11 @@ impl ParticleSystem {
 
         // buffer for simulation parameters uniform
 
-        let sim_param_data = boids::SimParams {
-            delta_time: 0.04f32,
-            separation_distance: 0.025,
-            separation_scale: 0.05,
-            alignment_distance: 0.025,
-            alignment_scale: 0.005,
-            cohesion_distance: 0.1,
-            cohesion_scale: 0.02,
-        };
-        let sim_param_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let sim_param_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Simulation Parameter Buffer"),
-            contents: bytemuck::bytes_of(&sim_param_data),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            size: size_of::<SimParams>() as _,
+            mapped_at_creation: false,
         });
 
         // create compute bind layout group and compute pipeline layout
@@ -158,6 +152,7 @@ impl ParticleSystem {
         // returns Example struct and No encoder commands
 
         ParticleSystem {
+            sim_param_buffer,
             particle_bind_groups,
             particle_buffers,
             compute_pipeline,
@@ -184,7 +179,7 @@ impl CallbackTrait for RenderCallback {
     fn prepare(
         &self,
         _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         _screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
         command_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
@@ -192,6 +187,13 @@ impl CallbackTrait for RenderCallback {
         if let Some(renderer) = callback_resources.get_mut::<ParticleSystem>() {
             command_encoder.push_debug_group("compute boid movement");
             {
+                // update uniforms
+                queue.write_buffer(
+                    &renderer.sim_param_buffer,
+                    0,
+                    bytemuck::bytes_of(&self.sim_params),
+                );
+
                 // compute pass
                 let mut cpass = command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: None,

@@ -107,7 +107,7 @@ impl eframe::App for RendererApp {
             egui::Slider::new(&mut self.sim_delta_time, 0.004..=0.1)
                 .text("Simulation Delta Time (s)")
                 .ui(ui);
-            egui::Slider::new(&mut self.sim_speed, 0. ..= 10.)
+            egui::Slider::new(&mut self.sim_speed, 0. ..=10.)
                 .text("Simulation Speed Multiplier")
                 .ui(ui);
         });
@@ -120,7 +120,7 @@ impl eframe::App for RendererApp {
 
                 let num_sim_updates = if self.is_playing {
                     let render_dt = ui.ctx().input(|input| input.stable_dt);
-                    let sim_frames = self.leftover_sim_frames + self.sim_delta_time / render_dt;
+                    let sim_frames = self.leftover_sim_frames + render_dt / self.sim_delta_time;
                     self.leftover_sim_frames = sim_frames.fract();
                     sim_frames as u32
                 } else if single_step {
