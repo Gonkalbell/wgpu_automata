@@ -58,7 +58,6 @@ fn main() {
 
     let web_options = eframe::WebOptions {
         wgpu_options: get_wgpu_options(),
-        depth_buffer: 32,
         ..Default::default()
     };
 
