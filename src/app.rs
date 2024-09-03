@@ -20,6 +20,7 @@ pub struct RenderSettings {
 pub struct RendererApp {
     is_playing: bool,
     sim_delta_time: f32,
+    sim_speed: f32,
     leftover_sim_frames: f32,
 }
 
@@ -28,6 +29,7 @@ impl Default for RendererApp {
         Self {
             is_playing: true,
             sim_delta_time: 0.04,
+            sim_speed: 1.,
             leftover_sim_frames: 0.,
         }
     }
@@ -105,12 +107,15 @@ impl eframe::App for RendererApp {
             egui::Slider::new(&mut self.sim_delta_time, 0.004..=0.1)
                 .text("Simulation Delta Time (s)")
                 .ui(ui);
+            egui::Slider::new(&mut self.sim_speed, 0. ..= 10.)
+                .text("Simulation Speed Multiplier")
+                .ui(ui);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::Frame::canvas(ui.style()).show(ui, |ui| {
                 let min_size = ui.available_size().min_elem();
-                let (rect, response) =
+                let (rect, _response) =
                     ui.allocate_exact_size(Vec2::splat(min_size), egui::Sense::click_and_drag());
 
                 let num_sim_updates = if self.is_playing {
@@ -124,7 +129,7 @@ impl eframe::App for RendererApp {
                     0
                 };
                 let sim_params = boids::SimParams {
-                    delta_time: 0.04f32,
+                    delta_time: self.sim_delta_time * self.sim_speed,
                     separation_distance: 0.025,
                     separation_scale: 0.05,
                     alignment_distance: 0.025,
