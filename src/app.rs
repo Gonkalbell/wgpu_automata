@@ -9,11 +9,6 @@ use puffin::profile_function;
 use crate::shaders::boids;
 use particles::{ParticleSystem, RenderCallback};
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct RenderSettings {
-    pub sim_params: boids::SimParams,
-}
-
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -22,6 +17,7 @@ pub struct RendererApp {
     sim_delta_time: f32,
     sim_speed: f32,
     leftover_sim_frames: f32,
+    num_particles: u32,
 }
 
 impl Default for RendererApp {
@@ -31,6 +27,7 @@ impl Default for RendererApp {
             sim_delta_time: 0.04,
             sim_speed: 1.,
             leftover_sim_frames: 0.,
+            num_particles: 10000,
         }
     }
 }
@@ -99,7 +96,7 @@ impl eframe::App for RendererApp {
         });
 
         let mut single_step = false;
-        egui::SidePanel::left("Settings").show(ctx, |ui| {
+        egui::SidePanel::right("Settings").show(ctx, |ui| {
             ui.toggle_value(&mut self.is_playing, "Play");
             if !self.is_playing {
                 single_step = ui.button("Step").clicked();
@@ -109,6 +106,9 @@ impl eframe::App for RendererApp {
                 .ui(ui);
             egui::Slider::new(&mut self.sim_speed, 0. ..=10.)
                 .text("Simulation Speed Multiplier")
+                .ui(ui);
+            egui::Slider::new(&mut self.num_particles, 0 ..= particles::MAX_PARTICLES as u32)
+                .text("Number of Boids")
                 .ui(ui);
         });
 
@@ -129,6 +129,7 @@ impl eframe::App for RendererApp {
                     0
                 };
                 let sim_params = boids::SimParams {
+                    num_particles: self.num_particles,
                     delta_time: self.sim_delta_time * self.sim_speed,
                     separation_distance: 0.025,
                     separation_scale: 0.05,

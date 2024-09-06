@@ -7,6 +7,7 @@ struct Particle {
 };
 
 struct SimParams {
+    num_particles: u32,
     delta_time: f32,
     separation_distance: f32,
     alignment_distance: f32,
@@ -56,11 +57,10 @@ fn boids_fs(@location(0) color: vec4f) -> @location(0) vec4f {
 @group(0) @binding(2) var<storage, read_write> particles_dst : array<Particle>;
 
 // https://github.com/austinEng/Project6-Vulkan-Flocking/blob/master/data/shaders/computeparticles/particle.comp
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn boids_cs(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let total = arrayLength(&particles_src);
     let index = global_invocation_id.x;
-    if index >= total {
+    if index >= params.num_particles {
         return;
     }
 
@@ -68,11 +68,11 @@ fn boids_cs(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     var separation_vel = vec2f(0.);
     var alignment_vel = vec2f(0.);
-    var alignment_count: u32 = 0;
+    var alignment_count = 0u;
     var center_of_mass = vec2f(0.);
-    var cohesion_count: u32 = 0;
+    var cohesion_count = 0u;
 
-    for (var i: u32 = 0u; i < total; i++) {
+    for (var i = 0u; i < params.num_particles; i++) {
         if i == index {
             continue;
         }
@@ -99,7 +99,7 @@ fn boids_cs(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         cohesion_vel = (center_of_mass / f32(cohesion_count)) - me.pos;
     }
 
-    var new_particle: Particle = me;
+    var new_particle = me;
     new_particle.vel += separation_vel * params.separation_scale;
     new_particle.vel += alignment_vel * params.alignment_scale;
     new_particle.vel += cohesion_vel * params.cohesion_scale;

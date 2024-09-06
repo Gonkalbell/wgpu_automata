@@ -7,13 +7,7 @@ use eframe::egui_wgpu::CallbackTrait;
 use nanorand::{Rng, WyRand};
 use wgpu::util::DeviceExt;
 
-// number of boid particles to simulate
-
-const NUM_PARTICLES: u32 = 12000;
-
-// number of single-particle calculations (invocations) in each gpu work group
-
-const PARTICLES_PER_GROUP: u32 = 64;
+pub const MAX_PARTICLES: usize = 1_000_000;
 
 /// Persistent WGPU data for particle rendering and simulation
 pub struct ParticleSystem {
@@ -104,16 +98,17 @@ impl ParticleSystem {
 
         // buffer for all particles
 
+        // TODO: do this on the GPU
         let mut rng = WyRand::new_seed(42);
         let mut unif = || rng.generate::<f32>() * 2f32 - 1f32; // Generate a num (-1, 1)
-        let initial_particle_data: Vec<_> = (0..NUM_PARTICLES)
+        let initial_particle_data: Vec<_> = (0..MAX_PARTICLES)
             .map(|_| boids::Particle {
                 pos: [unif(), unif()],
                 vel: [unif(), unif()],
             })
             .collect();
 
-        // creates two buffers of particle data each of size NUM_PARTICLES
+        // creates two buffers of particle data each of size max_particles
         // the two buffers alternate as dst and src for each frame
 
         let mut particle_buffers = Vec::<wgpu::Buffer>::new();
@@ -200,15 +195,17 @@ impl CallbackTrait for RenderCallback {
                     timestamp_writes: None,
                 });
                 cpass.set_pipeline(&renderer.compute_pipeline);
-                // calculates number of work groups from PARTICLES_PER_GROUP constant
-                let work_group_count =
-                    ((NUM_PARTICLES as f32) / (PARTICLES_PER_GROUP as f32)).ceil() as u32;
                 for _ in 0..self.num_sim_updates {
                     cpass.set_bind_group(
                         0,
                         &renderer.particle_bind_groups[renderer.frame_num % 2],
                         &[],
                     );
+
+                    let work_group_count = self
+                        .sim_params
+                        .num_particles
+                        .div_ceil(boids::BOIDS_CS_WORKGROUP_SIZE[0]);
                     cpass.dispatch_workgroups(work_group_count, 1, 1);
                     renderer.frame_num += 1;
                 }
@@ -232,7 +229,7 @@ impl CallbackTrait for RenderCallback {
                 renderer.particle_buffers[(renderer.frame_num + 1) % 2].slice(..),
             );
             // the three instance-local vertices
-            rpass.draw(0..3, 0..NUM_PARTICLES);
+            rpass.draw(0..3, 0..self.sim_params.num_particles);
         }
     }
 }
