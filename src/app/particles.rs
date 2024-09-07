@@ -7,7 +7,7 @@ use eframe::egui_wgpu::CallbackTrait;
 use nanorand::{Rng, WyRand};
 use wgpu::util::DeviceExt;
 
-pub const MAX_PARTICLES: usize = 1_000_000;
+pub const MAX_PARTICLES: usize = 100_000;
 
 /// Persistent WGPU data for particle rendering and simulation
 pub struct ParticleSystem {
