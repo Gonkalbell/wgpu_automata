@@ -23,6 +23,7 @@ ktx2 = "0.3.0"
 wgpu = "0.20.1"
 web-time = "1.1.0"
 nanorand = { version = "0.7.0", default-features = false, features = ["wyrand"] }
+wgpu-profiler = "0.17.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

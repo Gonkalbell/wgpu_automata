@@ -2,12 +2,30 @@
 //! most of the rendering logic actually happens in `renderer.rs`
 
 mod particles;
+mod profiler;
 
-use egui::{Vec2, Widget};
-use puffin::profile_function;
+use std::sync::LazyLock;
+
+use egui::{mutex::Mutex, Vec2, Widget};
+use puffin::{profile_function, FrameView, GlobalFrameView, GlobalProfiler};
+use puffin_egui::{MaybeMutRef, ProfilerUi};
 
 use crate::shaders::boids;
 use particles::{ParticleSystem, RenderCallback};
+
+pub static PUFFIN_GPU_FRAME_VIEW: LazyLock<Mutex<FrameView>> = LazyLock::new(|| Default::default());
+
+pub static PUFFIN_GPU_PROFILER: LazyLock<Mutex<GlobalProfiler>> = LazyLock::new(|| {
+    let mut profiler = GlobalProfiler::default();
+    let _sink_id = profiler.add_sink(Box::new(move |frame| {
+        PUFFIN_GPU_FRAME_VIEW.lock().add_frame(frame);
+    }));
+    // GlobalFrameView might be created after scope scopes were already created
+    // and our registered sink won't see them without prior propagation.
+    profiler.emit_scope_snapshot();
+
+    Mutex::new(profiler)
+});
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -18,6 +36,11 @@ pub struct RendererApp {
     sim_speed: f32,
     leftover_sim_frames: f32,
     num_particles: u32,
+
+    show_cpu_profiler: bool,
+    show_gpu_profiler: bool,
+    #[serde(skip)]
+    gpu_profiler: ProfilerUi,
 }
 
 impl Default for RendererApp {
@@ -28,6 +51,10 @@ impl Default for RendererApp {
             sim_speed: 1.,
             leftover_sim_frames: 0.,
             num_particles: 10000,
+
+            show_cpu_profiler: false,
+            show_gpu_profiler: false,
+            gpu_profiler: Default::default(),
         }
     }
 }
@@ -79,10 +106,11 @@ impl eframe::App for RendererApp {
                     });
 
                     // eframe doesn't support puffin on browser because it might not have a high resolution clock.
-                    let mut are_scopes_on = puffin::are_scopes_on();
-                    ui.toggle_value(&mut are_scopes_on, "Profiler");
-                    puffin::set_scopes_on(are_scopes_on);
+                    ui.toggle_value(&mut self.show_cpu_profiler, "CPU Profiler");
                 }
+
+                ui.toggle_value(&mut self.show_gpu_profiler, "GPU Profiler");
+                puffin::set_scopes_on(self.show_cpu_profiler || self.show_gpu_profiler);
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                     if ui.button("reset UI").clicked() {
@@ -92,7 +120,16 @@ impl eframe::App for RendererApp {
                 });
             });
 
-            puffin_egui::show_viewport_if_enabled(ctx);
+            if self.show_cpu_profiler {
+                puffin_egui::profiler_window(ctx);
+            }
+            if self.show_gpu_profiler {
+                let mut frame_view = PUFFIN_GPU_FRAME_VIEW.lock();
+                egui::Window::new("GPU Profiler").show(ctx, |ui| {
+                    self.gpu_profiler
+                        .ui(ui, &mut MaybeMutRef::MutRef(&mut frame_view))
+                });
+            }
         });
 
         let mut single_step = false;
@@ -153,5 +190,10 @@ impl eframe::App for RendererApp {
         if self.is_playing {
             ctx.request_repaint();
         }
+
+        
+        let mut prof = PUFFIN_GPU_PROFILER.lock();
+        profiler::output_frame_to_puffin(&mut prof, &[]);
+        PUFFIN_GPU_PROFILER.lock().new_frame();
     }
 }
