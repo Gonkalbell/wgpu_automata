@@ -107,7 +107,7 @@ impl eframe::App for RendererApp {
             egui::Slider::new(&mut self.sim_speed, 0. ..=10.)
                 .text("Simulation Speed Multiplier")
                 .ui(ui);
-            egui::Slider::new(&mut self.num_particles, 0 ..= particles::MAX_PARTICLES as u32)
+            egui::Slider::new(&mut self.num_particles, 0..=particles::MAX_PARTICLES as u32)
                 .text("Number of Boids")
                 .ui(ui);
         });
