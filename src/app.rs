@@ -194,6 +194,6 @@ impl eframe::App for RendererApp {
         
         let mut prof = PUFFIN_GPU_PROFILER.lock();
         profiler::output_frame_to_puffin(&mut prof, &[]);
-        PUFFIN_GPU_PROFILER.lock().new_frame();
+        prof.new_frame();
     }
 }
