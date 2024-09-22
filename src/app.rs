@@ -40,7 +40,7 @@ pub struct RendererApp {
     show_cpu_profiler: bool,
     show_gpu_profiler: bool,
     #[serde(skip)]
-    gpu_profiler: ProfilerUi,
+    gpu_profiler_ui: ProfilerUi,
 }
 
 impl Default for RendererApp {
@@ -54,7 +54,7 @@ impl Default for RendererApp {
 
             show_cpu_profiler: false,
             show_gpu_profiler: false,
-            gpu_profiler: Default::default(),
+            gpu_profiler_ui: Default::default(),
         }
     }
 }
@@ -126,7 +126,7 @@ impl eframe::App for RendererApp {
             if self.show_gpu_profiler {
                 let mut frame_view = PUFFIN_GPU_FRAME_VIEW.lock();
                 egui::Window::new("GPU Profiler").show(ctx, |ui| {
-                    self.gpu_profiler
+                    self.gpu_profiler_ui
                         .ui(ui, &mut MaybeMutRef::MutRef(&mut frame_view))
                 });
             }
@@ -191,9 +191,6 @@ impl eframe::App for RendererApp {
             ctx.request_repaint();
         }
 
-        
-        let mut prof = PUFFIN_GPU_PROFILER.lock();
-        profiler::output_frame_to_puffin(&mut prof, &[]);
-        prof.new_frame();
+        PUFFIN_GPU_PROFILER.lock().new_frame();
     }
 }
