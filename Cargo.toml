@@ -10,19 +10,17 @@ all-features = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
-egui = "0.28"
-eframe = { version = "0.28", default-features = false, features = ["default_fonts", "wgpu", "persistence", "wayland", "x11", "puffin"] }
+egui = "0.29"
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "wgpu", "persistence", "wayland", "x11", "puffin"] }
 log = "0.4"
-
-# You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 puffin = { version = "0.19", features = ["web"] }
 bytemuck = { version = "1.18", features = ["derive"] }
 ktx2 = "0.3.0"
-wgpu = "0.20"
+wgpu = "22.1"
 web-time = "1.1.0"
 nanorand = { version = "0.7.0", default-features = false, features = ["wyrand"] }
-wgpu-profiler = "0.17"
+wgpu-profiler = "0.18"
 puffin_http = "0.16"
 
 # native:
@@ -32,10 +30,7 @@ env_logger = "0.11"
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
-
-# to access the DOM (to hide the loading text)
-[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "=0.3.69"
+web-sys = "0.3.70" # to access the DOM (to hide the loading text)
 
 [profile.release]
 opt-level = 2 # fast and small wasm

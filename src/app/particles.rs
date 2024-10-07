@@ -87,6 +87,7 @@ impl ParticleSystem {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         });
 
         // create compute pipeline
@@ -97,6 +98,7 @@ impl ParticleSystem {
             module: &shader,
             entry_point: boids::ENTRY_BOIDS_CS,
             compilation_options: Default::default(),
+            cache: None,
         });
 
         // buffer for all particles
@@ -239,11 +241,11 @@ impl CallbackTrait for RenderCallback {
         vec![]
     }
 
-    fn paint<'a>(
-        &'a self,
+    fn paint(
+        &self,
         _info: egui::PaintCallbackInfo,
-        rpass: &mut eframe::wgpu::RenderPass<'a>,
-        callback_resources: &'a eframe::egui_wgpu::CallbackResources,
+        rpass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &eframe::egui_wgpu::CallbackResources,
     ) {
         if let Some(renderer) = callback_resources.get::<ParticleSystem>() {
             rpass.set_pipeline(&renderer.render_pipeline);
