@@ -2,6 +2,7 @@
 //! most of the rendering logic actually happens in `renderer.rs`
 
 mod particles;
+mod profiler;
 
 use egui::{Vec2, Widget};
 use puffin::profile_function;
@@ -24,7 +25,7 @@ impl Default for RendererApp {
     fn default() -> Self {
         Self {
             is_playing: true,
-            sim_delta_time: 0.04,
+            sim_delta_time: 1. / 120.,
             sim_speed: 1.,
             leftover_sim_frames: 0.,
             num_particles: 10000,
@@ -77,11 +78,6 @@ impl eframe::App for RendererApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
-
-                    // eframe doesn't support puffin on browser because it might not have a high resolution clock.
-                    let mut are_scopes_on = puffin::are_scopes_on();
-                    ui.toggle_value(&mut are_scopes_on, "Profiler");
-                    puffin::set_scopes_on(are_scopes_on);
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -91,8 +87,6 @@ impl eframe::App for RendererApp {
                     }
                 });
             });
-
-            puffin_egui::show_viewport_if_enabled(ctx);
         });
 
         let mut single_step = false;

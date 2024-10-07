@@ -1,11 +1,13 @@
 // Flocking boids example with gpu compute update pass
 // adapted from https://github.com/austinEng/webgpu-samples/blob/master/src/examples/computeBoids.ts
 
-use crate::shaders::*;
+use crate::{app::profiler, shaders::*, PUFFIN_GPU_PROFILER};
 use boids::SimParams;
 use eframe::egui_wgpu::CallbackTrait;
 use nanorand::{Rng, WyRand};
+use puffin::current_function_name;
 use wgpu::util::DeviceExt;
+use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 pub const MAX_PARTICLES: usize = 100_000;
 
@@ -17,6 +19,7 @@ pub struct ParticleSystem {
     compute_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::RenderPipeline,
     frame_num: usize,
+    profiler: GpuProfiler,
 }
 
 impl ParticleSystem {
@@ -89,7 +92,7 @@ impl ParticleSystem {
         // create compute pipeline
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Compute pipeline"),
+            label: Some(boids::ENTRY_BOIDS_CS),
             layout: Some(&compute_pipeline_layout),
             module: &shader,
             entry_point: boids::ENTRY_BOIDS_CS,
@@ -153,6 +156,7 @@ impl ParticleSystem {
             compute_pipeline,
             render_pipeline,
             frame_num: 0,
+            profiler: GpuProfiler::new(GpuProfilerSettings::default()).unwrap(),
         }
     }
 }
@@ -173,44 +177,64 @@ pub struct RenderCallback {
 impl CallbackTrait for RenderCallback {
     fn prepare(
         &self,
-        _device: &wgpu::Device,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_descriptor: &eframe::egui_wgpu::ScreenDescriptor,
-        command_encoder: &mut wgpu::CommandEncoder,
+        _command_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        if let Some(renderer) = callback_resources.get_mut::<ParticleSystem>() {
-            command_encoder.push_debug_group("compute boid movement");
-            {
-                // update uniforms
-                queue.write_buffer(
-                    &renderer.sim_param_buffer,
-                    0,
-                    bytemuck::bytes_of(&self.sim_params),
-                );
+        let mut gpu_profiler = PUFFIN_GPU_PROFILER.lock().unwrap();
+        gpu_profiler.new_frame();
 
-                // compute pass
-                let mut cpass = command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: None,
-                });
-                cpass.set_pipeline(&renderer.compute_pipeline);
-                for _ in 0..self.num_sim_updates {
-                    cpass.set_bind_group(
+        if let Some(renderer) = callback_resources.get_mut::<ParticleSystem>() {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some(current_function_name!()),
+            });
+            {
+                let mut encoder =
+                    renderer
+                        .profiler
+                        .scope(current_function_name!(), &mut encoder, device);
+                {
+                    // update uniforms
+                    queue.write_buffer(
+                        &renderer.sim_param_buffer,
                         0,
-                        &renderer.particle_bind_groups[renderer.frame_num % 2],
-                        &[],
+                        bytemuck::bytes_of(&self.sim_params),
                     );
 
-                    let work_group_count = self
-                        .sim_params
-                        .num_particles
-                        .div_ceil(boids::BOIDS_CS_WORKGROUP_SIZE[0]);
-                    cpass.dispatch_workgroups(work_group_count, 1, 1);
-                    renderer.frame_num += 1;
+                    // compute pass
+                    let mut cpass = encoder.scoped_compute_pass("", device);
+                    cpass.set_pipeline(&renderer.compute_pipeline);
+                    for _ in 0..self.num_sim_updates {
+                        cpass.set_bind_group(
+                            0,
+                            &renderer.particle_bind_groups[renderer.frame_num % 2],
+                            &[],
+                        );
+
+                        let work_group_count = self
+                            .sim_params
+                            .num_particles
+                            .div_ceil(boids::BOIDS_CS_WORKGROUP_SIZE[0]);
+                        cpass.dispatch_workgroups(work_group_count, 1, 1);
+                        renderer.frame_num += 1;
+                    }
                 }
             }
-            command_encoder.pop_debug_group();
+
+            renderer.profiler.resolve_queries(&mut encoder);
+            queue.submit(Some(encoder.finish()));
+            renderer.profiler.end_frame().unwrap();
+
+            let latest_profiler_results = renderer
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period());
+
+            profiler::output_frame_to_puffin(
+                &mut gpu_profiler,
+                latest_profiler_results.as_deref().unwrap_or_default(),
+            );
         }
         vec![]
     }

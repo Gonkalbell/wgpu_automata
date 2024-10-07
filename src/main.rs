@@ -7,7 +7,7 @@ use std::sync::Arc;
 fn get_wgpu_options() -> WgpuConfiguration {
     WgpuConfiguration {
         device_descriptor: Arc::new(|adapter| {
-            let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
+            let base_limits: wgpu::Limits = if adapter.get_info().backend == wgpu::Backend::Gl {
                 wgpu::Limits::downlevel_webgl2_defaults()
             } else {
                 wgpu::Limits::default()
@@ -16,7 +16,8 @@ fn get_wgpu_options() -> WgpuConfiguration {
                 label: Some("egui wgpu device"),
                 required_features: wgpu::Features::default()
                     | wgpu::Features::POLYGON_MODE_LINE
-                    | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                    | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                    | wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES,
                 required_limits: wgpu::Limits {
                     // When using a depth buffer, we have to be able to create a texture
                     // large enough for the entire surface, and we want to support 4k+ displays.
@@ -32,7 +33,18 @@ fn get_wgpu_options() -> WgpuConfiguration {
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
+    use wgpu_automata::PUFFIN_GPU_PROFILER;
+
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+
+    puffin::set_scopes_on(true);
+    let _cpu_server =
+        puffin_http::Server::new(&format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT)).unwrap();
+    let _gpu_server = puffin_http::Server::new_custom(
+        &format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT + 1),
+        |sink| PUFFIN_GPU_PROFILER.lock().unwrap().add_sink(sink),
+        |id| _ = PUFFIN_GPU_PROFILER.lock().unwrap().remove_sink(id),
+    );
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_icon(
